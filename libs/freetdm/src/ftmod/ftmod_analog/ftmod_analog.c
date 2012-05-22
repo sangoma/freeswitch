@@ -794,7 +794,7 @@ static void *ftdm_analog_channel_run(ftdm_thread_t *me, void *obj)
 			case FTDM_CHANNEL_STATE_BUSY:
 				{
 					ftdmchan->caller_data.hangup_cause = FTDM_CAUSE_NORMAL_CIRCUIT_CONGESTION;
-					if (ftdm_test_flag(ftdmchan, FTDM_CHANNEL_OFFHOOK) && !ftdm_test_flag(ftdmchan, FTDM_CHANNEL_OUTBOUND)) {
+					if (ftdm_test_flag(ftdmchan, FTDM_CHANNEL_OFFHOOK)) {
 						ftdm_buffer_zero(dt_buffer);
 						teletone_run(&ts, ftdmchan->span->tone_map[FTDM_TONEMAP_BUSY]);
 						indicate = 1;
@@ -805,7 +805,7 @@ static void *ftdm_analog_channel_run(ftdm_thread_t *me, void *obj)
 				break;
 			case FTDM_CHANNEL_STATE_ATTN:
 				{
-					if (ftdm_test_flag(ftdmchan, FTDM_CHANNEL_OFFHOOK) && !ftdm_test_flag(ftdmchan, FTDM_CHANNEL_OUTBOUND)) {
+					if (ftdm_test_flag(ftdmchan, FTDM_CHANNEL_OFFHOOK)) {
 						ftdm_buffer_zero(dt_buffer);
 						teletone_run(&ts, ftdmchan->span->tone_map[FTDM_TONEMAP_ATTN]);
 						indicate = 1;
