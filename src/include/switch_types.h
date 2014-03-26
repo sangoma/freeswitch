@@ -27,6 +27,7 @@
  * Bret McDanel <trixter AT 0xdecafbad dot com>
  * Joseph Sullivan <jossulli@amazon.com>
  * Raymond Chandler <intralanman@freeswitch.org>
+ * Emmanuel Schmidbauer <e.schmidbauer@gmail.com>
  *
  * switch_types.h -- Data Types
  *
@@ -138,6 +139,9 @@ SWITCH_BEGIN_EXTERN_C
 #define SWITCH_PROTO_SPECIFIC_HANGUP_CAUSE_VARIABLE "proto_specific_hangup_cause"
 #define SWITCH_TRANSFER_HISTORY_VARIABLE "transfer_history"
 #define SWITCH_TRANSFER_SOURCE_VARIABLE "transfer_source"
+#define SWITCH_SENSITIVE_DTMF_VARIABLE "sensitive_dtmf"
+#define SWITCH_RECORD_POST_PROCESS_EXEC_APP_VARIABLE "record_post_process_exec_app"
+#define SWITCH_RECORD_POST_PROCESS_EXEC_API_VARIABLE "record_post_process_exec_api"
 
 #define SWITCH_CHANNEL_EXECUTE_ON_ANSWER_VARIABLE "execute_on_answer"
 #define SWITCH_CHANNEL_EXECUTE_ON_PRE_ANSWER_VARIABLE "execute_on_pre_answer"
@@ -147,6 +151,9 @@ SWITCH_BEGIN_EXTERN_C
 #define SWITCH_CHANNEL_EXECUTE_ON_ORIGINATE_VARIABLE "execute_on_originate"
 #define SWITCH_CHANNEL_EXECUTE_ON_POST_ORIGINATE_VARIABLE "execute_on_post_originate"
 #define SWITCH_CHANNEL_EXECUTE_ON_PRE_ORIGINATE_VARIABLE "execute_on_pre_originate"
+
+#define SWITCH_CHANNEL_EXECUTE_ON_PRE_BRIDGE_VARIABLE "execute_on_pre_bridge"
+#define SWITCH_CHANNEL_EXECUTE_ON_POST_BRIDGE_VARIABLE "execute_on_post_bridge"
 
 #define SWITCH_CHANNEL_API_ON_ANSWER_VARIABLE "api_on_answer"
 #define SWITCH_CHANNEL_API_ON_PRE_ANSWER_VARIABLE "api_on_pre_answer"
@@ -161,6 +168,7 @@ SWITCH_BEGIN_EXTERN_C
 #define SWITCH_HOLDING_UUID_VARIABLE "holding_uuid"
 #define SWITCH_SOFT_HOLDING_UUID_VARIABLE "soft_holding_uuid"
 #define SWITCH_API_BRIDGE_END_VARIABLE "api_after_bridge"
+#define SWITCH_API_BRIDGE_START_VARIABLE "api_before_bridge"
 #define SWITCH_API_HANGUP_HOOK_VARIABLE "api_hangup_hook"
 #define SWITCH_API_REPORTING_HOOK_VARIABLE "api_reporting_hook"
 #define SWITCH_SESSION_IN_HANGUP_HOOK_VARIABLE "session_in_hangup_hook"
@@ -246,7 +254,8 @@ typedef enum {
 
 
 typedef enum {
-	DTMF_FLAG_SKIP_PROCESS = (1 << 0)
+	DTMF_FLAG_SKIP_PROCESS = (1 << 0),
+	DTMF_FLAG_SENSITIVE = (1 << 1)
 } dtmf_flag_t;
 
 typedef struct {
@@ -291,7 +300,9 @@ typedef uint32_t switch_originate_flag_t;
 typedef enum {
 	SPF_NONE = 0,
 	SPF_ODD = (1 << 0),
-	SPF_EVEN = (1 << 1)
+	SPF_EVEN = (1 << 1),
+	SPF_ROBUST_TCP = (1 << 2),
+	SPF_ROBUST_UDP = (1 << 3)
 } switch_port_flag_enum_t;
 typedef uint32_t switch_port_flag_t;
 
@@ -443,6 +454,8 @@ typedef enum {
 	SWITCH_ABC_TYPE_WRITE_REPLACE,
 	SWITCH_ABC_TYPE_READ_REPLACE,
 	SWITCH_ABC_TYPE_READ_PING,
+	SWITCH_ABC_TYPE_TAP_NATIVE_READ,
+	SWITCH_ABC_TYPE_TAP_NATIVE_WRITE,
 	SWITCH_ABC_TYPE_CLOSE
 } switch_abc_type_t;
 
@@ -483,6 +496,13 @@ struct switch_directories {
 typedef struct switch_directories switch_directories;
 SWITCH_DECLARE_DATA extern switch_directories SWITCH_GLOBAL_dirs;
 
+struct switch_filenames {
+    char *conf_name;
+};
+
+typedef struct switch_filenames switch_filenames;
+SWITCH_DECLARE_DATA extern switch_filenames SWITCH_GLOBAL_filenames;
+
 #define SWITCH_MAX_STACKS 16
 #define SWITCH_THREAD_STACKSIZE 240 * 1024
 #define SWITCH_SYSTEM_THREAD_STACKSIZE 8192 * 1024
@@ -520,7 +540,7 @@ typedef enum {
 	SWITCH_XML_SECTION_CONFIG = (1 << 0),
 	SWITCH_XML_SECTION_DIRECTORY = (1 << 1),
 	SWITCH_XML_SECTION_DIALPLAN = (1 << 2),
-	SWITCH_XML_SECTION_PHRASES = (1 << 3),
+	SWITCH_XML_SECTION_LANGUAGES = (1 << 3),
 	SWITCH_XML_SECTION_CHATPLAN = (1 << 4),
 
 	/* Nothing after this line */
@@ -911,7 +931,7 @@ typedef enum {
 	SWITCH_MESSAGE_INDICATE_REQUEST_IMAGE_MEDIA,
 	SWITCH_MESSAGE_INDICATE_UUID_CHANGE,
 	SWITCH_MESSAGE_INDICATE_SIMPLIFY,
-	SWITCH_MESSAGE_INDICATE_DEBUG_AUDIO,
+	SWITCH_MESSAGE_INDICATE_DEBUG_MEDIA,
 	SWITCH_MESSAGE_INDICATE_PROXY_MEDIA,
 	SWITCH_MESSAGE_INDICATE_APPLICATION_EXEC,
 	SWITCH_MESSAGE_INDICATE_APPLICATION_EXEC_COMPLETE,
@@ -928,6 +948,10 @@ typedef enum {
 	SWITCH_MESSAGE_INDICATE_BLIND_TRANSFER_RESPONSE,
 	SWITCH_MESSAGE_INDICATE_STUN_ERROR,
 	SWITCH_MESSAGE_INDICATE_MEDIA_RENEG,
+	SWITCH_MESSAGE_REFER_EVENT,
+	SWITCH_MESSAGE_ANSWER_EVENT,
+	SWITCH_MESSAGE_PROGRESS_EVENT,
+	SWITCH_MESSAGE_RING_EVENT,
 	SWITCH_MESSAGE_INVALID
 } switch_core_session_message_types_t;
 
@@ -1011,7 +1035,9 @@ typedef enum {
 	SWITCH_STATUS_FOUND,
 	SWITCH_STATUS_CONTINUE,
 	SWITCH_STATUS_TERM,
-	SWITCH_STATUS_NOT_INITALIZED
+	SWITCH_STATUS_NOT_INITALIZED,
+	SWITCH_STATUS_XBREAK = 35,
+	SWITCH_STATUS_WINBREAK = 730035
 } switch_status_t;
 
 
@@ -1092,8 +1118,20 @@ typedef enum {
 	CCS_EARLY,
 	CCS_ACTIVE,
 	CCS_HELD,
-	CCS_HANGUP
+	CCS_RING_WAIT,
+	CCS_HANGUP,
+	CCS_UNHOLD
 } switch_channel_callstate_t;
+
+typedef enum {
+	SDS_DOWN,
+	SDS_RINGING,
+	SDS_ACTIVE,
+	SDS_ACTIVE_MULTI,
+	SDS_HELD,
+	SDS_HANGUP
+} switch_device_state_t;
+
 
 /*!
   \enum switch_channel_state_t
@@ -1243,6 +1281,7 @@ typedef enum {
 	CF_JITTERBUFFER,
 	CF_JITTERBUFFER_PLC,
 	CF_DIALPLAN,
+	CF_BLEG,
 	CF_BLOCK_BROADCAST_UNTIL_MEDIA,
 	CF_CNG_PLC,
 	CF_ATTENDED_TRANSFER,
@@ -1259,6 +1298,8 @@ typedef enum {
 	CF_ZRTP_PASSTHRU,
 	CF_ZRTP_HASH,
 	CF_CHANNEL_SWAP,
+	CF_DEVICE_LEG,
+	CF_FINAL_DEVICE_LEG,
 	CF_PICKUP,
 	CF_CONFIRM_BLIND_TRANSFER,
 	CF_NO_PRESENCE,
@@ -1271,6 +1312,10 @@ typedef enum {
 	CF_EARLY_OK,
 	CF_MEDIA_TRANS,
 	CF_HOLD_ON_BRIDGE,
+	CF_NOVIDEO,
+	CF_VIDEO_ECHO,
+	CF_SLA_INTERCEPT,
+	CF_HANGUP_HELD,
 	/* WARNING: DO NOT ADD ANY FLAGS BELOW THIS LINE */
 	/* IF YOU ADD NEW ONES CHECK IF THEY SHOULD PERSIST OR ZERO THEM IN switch_core_session.c switch_core_session_request_xml() */
 	CF_FLAG_MAX
@@ -1478,7 +1523,8 @@ SMBF_WRITE_STREAM - Include the Write Stream
 SMBF_WRITE_REPLACE - Replace the Write Stream
 SMBF_READ_REPLACE - Replace the Read Stream
 SMBF_STEREO - Record in stereo
-SMBF_ANSWER_RECORD_REQ - Don't record until the channel is answered
+SMBF_ANSWER_REQ - Don't record until the channel is answered
+SMBF_BRIDGE_REQ - Don't record until the channel is bridged
 SMBF_THREAD_LOCK - Only let the same thread who created the bug remove it.
 SMBF_PRUNE - 
 SMBF_NO_PAUSE - 
@@ -1494,11 +1540,16 @@ typedef enum {
 	SMBF_READ_PING = (1 << 4),
 	SMBF_STEREO = (1 << 5),
 	SMBF_ANSWER_REQ = (1 << 6),
-	SMBF_THREAD_LOCK = (1 << 7),
-	SMBF_PRUNE = (1 << 8),
-	SMBF_NO_PAUSE = (1 << 9),
-	SMBF_STEREO_SWAP = (1 << 10),
-	SMBF_LOCK = (1 << 11)
+	SMBF_BRIDGE_REQ = (1 << 7),
+	SMBF_THREAD_LOCK = (1 << 8),
+	SMBF_PRUNE = (1 << 9),
+	SMBF_NO_PAUSE = (1 << 10),
+	SMBF_STEREO_SWAP = (1 << 11),
+	SMBF_LOCK = (1 << 12),
+	SMBF_TAP_NATIVE_READ = (1 << 13),
+	SMBF_TAP_NATIVE_WRITE = (1 << 14),
+	SMBF_ONE_ONLY = (1 << 15),
+	SMBF_MASK = (1 << 16)
 } switch_media_bug_flag_enum_t;
 typedef uint32_t switch_media_bug_flag_t;
 
@@ -1537,7 +1588,9 @@ typedef enum {
 	SWITCH_FILE_DONE = (1 << 13),
 	SWITCH_FILE_BUFFER_DONE = (1 << 14),
 	SWITCH_FILE_WRITE_APPEND = (1 << 15),
-	SWITCH_FILE_WRITE_OVER = (1 << 16)
+	SWITCH_FILE_WRITE_OVER = (1 << 16),
+	SWITCH_FILE_NOMUX = (1 << 17),
+	SWITCH_FILE_BREAK_ON_CHANGE = (1 << 18)
 } switch_file_flag_enum_t;
 typedef uint32_t switch_file_flag_t;
 
@@ -1702,6 +1755,8 @@ typedef enum {
 	SWITCH_EVENT_CONFERENCE_DATA,
 	SWITCH_EVENT_CALL_SETUP_REQ,
 	SWITCH_EVENT_CALL_SETUP_RESULT,
+	SWITCH_EVENT_CALL_DETAIL,
+	SWITCH_EVENT_DEVICE_STATE,
 	SWITCH_EVENT_ALL
 } switch_event_types_t;
 
@@ -1820,7 +1875,11 @@ typedef enum {
 	SCSC_DEBUG_SQL,
 	SCSC_SQL,
 	SCSC_API_EXPANSION,
-	SCSC_RECOVER
+	SCSC_RECOVER,
+	SCSC_SPS_PEAK,
+	SCSC_SPS_PEAK_FIVEMIN,
+	SCSC_SESSIONS_PEAK,
+	SCSC_SESSIONS_PEAK_FIVEMIN
 } switch_session_ctl_t;
 
 typedef enum {
@@ -2121,5 +2180,5 @@ SWITCH_END_EXTERN_C
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

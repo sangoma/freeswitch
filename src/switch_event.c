@@ -26,7 +26,7 @@
  * Anthony Minessale II <anthm@freeswitch.org>
  * Michael Jerris <mike@jerris.com>
  * Paul D. Tinsley <pdt at jackhammer.org>
- *
+ * William King <william.king@quentustech.com>
  *
  * switch_event.c -- Event System
  *
@@ -35,6 +35,7 @@
 #include <switch.h>
 #include <switch_event.h>
 #include "tpl.h"
+#include "private/switch_core_pvt.h"
 
 //#define SWITCH_EVENT_RECYCLE
 #define DISPATCH_QUEUE_LEN 10000
@@ -198,6 +199,8 @@ static char *EVENT_NAMES[] = {
 	"CONFERENCE_DATA",
 	"CALL_SETUP_REQ",
 	"CALL_SETUP_RESULT",
+	"CALL_DETAIL",
+	"DEVICE_STATE",
 	"ALL"
 };
 
@@ -239,6 +242,34 @@ static int switch_events_match(switch_event_t *event, switch_event_node_t *node)
 	return match;
 }
 
+
+static void *SWITCH_THREAD_FUNC switch_event_deliver_thread(switch_thread_t *thread, void *obj)
+{
+	switch_event_t *event = (switch_event_t *) obj;
+
+	switch_event_deliver(&event);
+
+	return NULL;
+}
+
+static void switch_event_deliver_thread_pool(switch_event_t **event)
+{
+	switch_thread_data_t *td;
+	
+	td = malloc(sizeof(*td));
+	switch_assert(td);
+
+	td->alloc = 1;
+	td->func = switch_event_deliver_thread;
+	td->obj = *event;
+	td->pool = NULL;
+
+	*event = NULL;
+
+	switch_thread_pool_launch_thread(&td);
+
+}
+
 static void *SWITCH_THREAD_FUNC switch_event_dispatch_thread(switch_thread_t *thread, void *obj)
 {
 	switch_queue_t *queue = (switch_queue_t *) obj;
@@ -252,6 +283,11 @@ static void *SWITCH_THREAD_FUNC switch_event_dispatch_thread(switch_thread_t *th
 		if (EVENT_DISPATCH_QUEUE_THREADS[my_id] == thread) {
 			break;
 		}
+	}
+
+	if ( my_id >= MAX_DISPATCH_VAL ) {
+		switch_mutex_unlock(EVENT_QUEUE_MUTEX);
+		return NULL;
 	}
 
 	EVENT_DISPATCH_QUEUE_RUNNING[my_id] = 1;
@@ -479,19 +515,22 @@ SWITCH_DECLARE(switch_status_t) switch_event_shutdown(void)
 	SYSTEM_RUNNING = 0;
 	switch_mutex_unlock(EVENT_QUEUE_MUTEX);
 
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Stopping dispatch queues\n");
+	if (runtime.events_use_dispatch) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Stopping dispatch queues\n");
 
-	for(x = 0; x < (uint32_t)DISPATCH_THREAD_COUNT; x++) {
-		switch_queue_trypush(EVENT_DISPATCH_QUEUE, NULL);
-	}
+		for(x = 0; x < (uint32_t)DISPATCH_THREAD_COUNT; x++) {
+			switch_queue_trypush(EVENT_DISPATCH_QUEUE, NULL);
+		}
+		
 
-	switch_queue_interrupt_all(EVENT_DISPATCH_QUEUE);
-
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Stopping dispatch threads\n");
-
-	for(x = 0; x < (uint32_t)DISPATCH_THREAD_COUNT; x++) {
-		switch_status_t st;
-		switch_thread_join(&st, EVENT_DISPATCH_QUEUE_THREADS[x]);
+		switch_queue_interrupt_all(EVENT_DISPATCH_QUEUE);
+		
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Stopping dispatch threads\n");
+		
+		for(x = 0; x < (uint32_t)DISPATCH_THREAD_COUNT; x++) {
+			switch_status_t st;
+			switch_thread_join(&st, EVENT_DISPATCH_QUEUE_THREADS[x]);
+		}
 	}
 
 	x = 0;
@@ -503,7 +542,7 @@ SWITCH_DECLARE(switch_status_t) switch_event_shutdown(void)
 		last = THREAD_COUNT;
 	}
 
-	{
+	if (runtime.events_use_dispatch) {
 		void *pop = NULL;
 		switch_event_t *event = NULL;
 
@@ -529,6 +568,25 @@ SWITCH_DECLARE(switch_status_t) switch_event_shutdown(void)
 	return SWITCH_STATUS_SUCCESS;
 }
 
+static void check_dispatch(void)
+{
+	if (!EVENT_DISPATCH_QUEUE) {
+		switch_mutex_lock(BLOCK);
+		
+		if (!EVENT_DISPATCH_QUEUE) {
+			switch_queue_create(&EVENT_DISPATCH_QUEUE, DISPATCH_QUEUE_LEN * MAX_DISPATCH, THRUNTIME_POOL);
+			switch_event_launch_dispatch_threads(1);
+			
+			while (!THREAD_COUNT) {
+				switch_cond_next();
+			}
+		}
+		switch_mutex_unlock(BLOCK);
+	}            
+}
+
+
+
 SWITCH_DECLARE(void) switch_event_launch_dispatch_threads(uint32_t max)
 {
 	switch_threadattr_t *thd_attr;
@@ -537,6 +595,8 @@ SWITCH_DECLARE(void) switch_event_launch_dispatch_threads(uint32_t max)
 	uint32_t sanity = 200;
 
 	switch_memory_pool_t *pool = RUNTIME_POOL;
+
+	check_dispatch();
 
 	if (max > MAX_DISPATCH) {
 		return;
@@ -602,28 +662,12 @@ SWITCH_DECLARE(switch_status_t) switch_event_init(switch_memory_pool_t *pool)
 	switch_find_local_ip(guess_ip_v6, sizeof(guess_ip_v6), NULL, AF_INET6);
 
 
-	//switch_queue_create(&EVENT_QUEUE[0], POOL_COUNT_MAX + 10, THRUNTIME_POOL);
-	//switch_queue_create(&EVENT_QUEUE[1], POOL_COUNT_MAX + 10, THRUNTIME_POOL);
-	//switch_queue_create(&EVENT_QUEUE[2], POOL_COUNT_MAX + 10, THRUNTIME_POOL);
 #ifdef SWITCH_EVENT_RECYCLE
 	switch_queue_create(&EVENT_RECYCLE_QUEUE, 250000, THRUNTIME_POOL);
 	switch_queue_create(&EVENT_HEADER_RECYCLE_QUEUE, 250000, THRUNTIME_POOL);
 #endif
 
-	//switch_threadattr_stacksize_set(thd_attr, SWITCH_THREAD_STACKSIZE);
-
-
-	switch_queue_create(&EVENT_DISPATCH_QUEUE, DISPATCH_QUEUE_LEN * MAX_DISPATCH, pool);
-	switch_event_launch_dispatch_threads(1);
-
-	//switch_thread_create(&EVENT_QUEUE_THREADS[0], thd_attr, switch_event_thread, EVENT_QUEUE[0], RUNTIME_POOL);
-	//switch_thread_create(&EVENT_QUEUE_THREADS[1], thd_attr, switch_event_thread, EVENT_QUEUE[1], RUNTIME_POOL);
-	//switch_thread_create(&EVENT_QUEUE_THREADS[2], thd_attr, switch_event_thread, EVENT_QUEUE[2], RUNTIME_POOL);
-
-	while (!THREAD_COUNT) {
-		switch_cond_next();
-	}
-
+	check_dispatch();
 
 	switch_mutex_lock(EVENT_QUEUE_MUTEX);
 	SYSTEM_RUNNING = 1;
@@ -909,8 +953,10 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 	if (index_ptr || (stack & SWITCH_STACK_PUSH) || (stack & SWITCH_STACK_UNSHIFT)) {
 		
 		if (!(header = switch_event_get_header_ptr(event, header_name)) && index_ptr) {
-
-			header = new_header(header_name);
+			/*
+			 * Removing a possible leak. But it doesn't appear this is used anywhere, and even if it were then it wouldn't be working.
+			   header = new_header(header_name);
+			*/
 
 			if (switch_test_flag(event, EF_UNIQ_HEADERS)) {
 				switch_event_del_header(event, header_name);
@@ -1030,9 +1076,16 @@ static switch_status_t switch_event_base_add_header(switch_event_t *event, switc
 				*header->value = '\0';
 			}
 
+			hv += strlen(header->value);
 			for(j = 0; j < header->idx; j++) {
-				switch_snprintf(header->value + strlen(header->value), len - strlen(header->value), "%s%s", j == 0 ? "" : "|:", header->array[j]);
+				if (j > 0) {
+					memcpy(hv, "|:", 2);
+					hv += 2;
+				}
+				memcpy(hv, header->array[j], strlen(header->array[j]));
+				hv += strlen(header->array[j]);
 			}
+			*hv = '\0';
 		}
 
 	} else {
@@ -1766,8 +1819,10 @@ SWITCH_DECLARE(switch_xml_t) switch_event_xmlize(switch_event_t *event, const ch
 		ret = vasprintf(&data, fmt, ap);
 #else
 		data = (char *) malloc(2048);
-		if (!data)
+		if (!data) {
+			va_end(ap);
 			return NULL;
+		}
 		ret = vsnprintf(data, 2048, fmt, ap);
 #endif
 		va_end(ap);
@@ -1872,9 +1927,17 @@ SWITCH_DECLARE(switch_status_t) switch_event_fire_detailed(const char *file, con
 		(*event)->event_user_data = user_data;
 	}
 
-	if (switch_event_queue_dispatch_event(event) != SWITCH_STATUS_SUCCESS) {
-		switch_event_destroy(event);
-		return SWITCH_STATUS_FALSE;
+
+
+	if (runtime.events_use_dispatch) {
+		check_dispatch();
+
+		if (switch_event_queue_dispatch_event(event) != SWITCH_STATUS_SUCCESS) {
+			switch_event_destroy(event);
+			return SWITCH_STATUS_FALSE;
+		}
+	} else {
+		switch_event_deliver_thread_pool(event);
 	}
 
 	return SWITCH_STATUS_SUCCESS;
@@ -2509,5 +2572,5 @@ SWITCH_DECLARE(void) switch_event_add_presence_data_cols(switch_channel_t *chann
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

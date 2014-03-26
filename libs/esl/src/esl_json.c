@@ -523,7 +523,18 @@ ESL_DECLARE(cJSON *)cJSON_CreateArray(void)						{cJSON *item=cJSON_New_Item();i
 ESL_DECLARE(cJSON *)cJSON_CreateObject(void)						{cJSON *item=cJSON_New_Item();if(item)item->type=cJSON_Object;return item;}
 
 /* Create Arrays: */
-ESL_DECLARE(cJSON *)cJSON_CreateIntArray(int *numbers,int count)				{int i;cJSON *n=0,*p=0,*a=cJSON_CreateArray();for(i=0;a!=0 && i<count;i++){n=cJSON_CreateNumber(numbers[i]);if(!i)a->child=n;else suffix_object(p,n);p=n;}return a;}
-ESL_DECLARE(cJSON *)cJSON_CreateFloatArray(float *numbers,int count)			{int i;cJSON *n=0,*p=0,*a=cJSON_CreateArray();for(i=0;a!=0 && i<count;i++){n=cJSON_CreateNumber(numbers[i]);if(!i)a->child=n;else suffix_object(p,n);p=n;}return a;}
-ESL_DECLARE(cJSON *)cJSON_CreateDoubleArray(double *numbers,int count)		{int i;cJSON *n=0,*p=0,*a=cJSON_CreateArray();for(i=0;a!=0 && i<count;i++){n=cJSON_CreateNumber(numbers[i]);if(!i)a->child=n;else suffix_object(p,n);p=n;}return a;}
-ESL_DECLARE(cJSON *)cJSON_CreateStringArray(const char **strings,int count)	{int i;cJSON *n=0,*p=0,*a=cJSON_CreateArray();for(i=0;a!=0 && i<count;i++){n=cJSON_CreateString(strings[i]);if(!i)a->child=n;else suffix_object(p,n);p=n;}return a;}
+ESL_DECLARE(cJSON *)cJSON_CreateIntArray(int *numbers,int count)				{int i;cJSON *n=0,*p=0,*a=cJSON_CreateArray();for(i=0;a!=0 && i<count;i++){n=cJSON_CreateNumber(numbers[i]);if(!n)return 0;if(!i)a->child=n;else suffix_object(p,n);p=n;}return a;}
+ESL_DECLARE(cJSON *)cJSON_CreateFloatArray(float *numbers,int count)			{int i;cJSON *n=0,*p=0,*a=cJSON_CreateArray();for(i=0;a!=0 && i<count;i++){n=cJSON_CreateNumber(numbers[i]);if(!n)return 0;if(!i)a->child=n;else suffix_object(p,n);p=n;}return a;}
+ESL_DECLARE(cJSON *)cJSON_CreateDoubleArray(double *numbers,int count)		{int i;cJSON *n=0,*p=0,*a=cJSON_CreateArray();for(i=0;a!=0 && i<count;i++){n=cJSON_CreateNumber(numbers[i]);if(!n)return 0;if(!i)a->child=n;else suffix_object(p,n);p=n;}return a;}
+ESL_DECLARE(cJSON *)cJSON_CreateStringArray(const char **strings,int count)	{int i;cJSON *n=0,*p=0,*a=cJSON_CreateArray();for(i=0;a!=0 && i<count;i++){n=cJSON_CreateString(strings[i]);if(!n)return 0;if(!i)a->child=n;else suffix_object(p,n);p=n;}return a;}
+
+/* For Emacs:
+ * Local Variables:
+ * mode:c
+ * indent-tabs-mode:t
+ * tab-width:4
+ * c-basic-offset:4
+ * End:
+ * For VIM:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
+ */

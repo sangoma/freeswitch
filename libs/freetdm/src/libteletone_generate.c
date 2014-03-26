@@ -382,9 +382,12 @@ TELETONE_API(int) teletone_run(teletone_generation_session_t *ts, const char *cm
 					break;
 				case 'L':
 					if (!LOOPING) {
-						ts->LOOPS = atoi(cur + 2); 
+						int L;
+						if ((L = atoi(cur + 2)) > 0) {
+							ts->LOOPS = L;
+							LOOPING++;
+						}
 					}
-					LOOPING++;
 					break;
 				}
 			} else {
@@ -480,6 +483,7 @@ TELETONE_API(int) teletone_run(teletone_generation_session_t *ts, const char *cm
 	bottom:
 		free(data);
 		data = NULL;
+
 		if (ts->LOOPS > 0) {
 			ts->LOOPS--;
 		}
@@ -497,5 +501,5 @@ TELETONE_API(int) teletone_run(teletone_generation_session_t *ts, const char *cm
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

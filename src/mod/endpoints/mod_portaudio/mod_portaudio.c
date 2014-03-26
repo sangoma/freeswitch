@@ -25,6 +25,7 @@
  * 
  * Anthony Minessale II <anthm@freeswitch.org>
  * Moises Silva <moises.silva@gmail.com> (Multiple endpoints work sponsored by Comrex Corporation)
+ * Raymond Chandler <intralanman@freeswitch.org>
  *
  *
  * mod_portaudio.c -- PortAudio Endpoint Module
@@ -185,6 +186,7 @@ static struct {
 	int indev;
 	int outdev;
 	int call_id;
+	int unload_device_fail;
 	switch_hash_t *call_hash;
 	switch_mutex_t *device_lock;
 	switch_mutex_t *pvt_lock;
@@ -1653,6 +1655,7 @@ static switch_status_t load_config(void)
 	globals.no_ring_during_call = 0;
 	globals.indev = globals.outdev = globals.ringdev = -1;
 	globals.sample_rate = 8000;
+	globals.unload_device_fail = 0;
 
 	if ((settings = switch_xml_child(cfg, "settings"))) {
 		for (param = switch_xml_child(settings, "param"); param; param = param->next) {
@@ -1729,6 +1732,8 @@ static switch_status_t load_config(void)
 				} else {
 					globals.ringdev = get_dev_by_name(val, 0);
 				}
+			} else if (!strcasecmp(var, "unload-on-device-fail")) {
+				globals.unload_device_fail = switch_true(val);
 			}
 		}
 	}
@@ -1761,21 +1766,27 @@ static switch_status_t load_config(void)
 
 	if (globals.indev < 0) {
 		globals.indev = get_dev_by_name(NULL, 1);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "global indev [%d]\n", globals.indev);
 		if (globals.indev > -1) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Switching to default input device\n");
 		} else {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot find an input device\n");
-			status = SWITCH_STATUS_GENERR;
+			if (globals.unload_device_fail) {
+				status = SWITCH_STATUS_GENERR;
+			}
 		}
 	}
 
 	if (globals.outdev < 0) {
 		globals.outdev = get_dev_by_name(NULL, 0);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "global outdev [%d]\n", globals.outdev);
 		if (globals.outdev > -1) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Switching to default output device\n");
 		} else {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot find an output device\n");
-			status = SWITCH_STATUS_GENERR;
+			if (globals.unload_device_fail) {
+				status = SWITCH_STATUS_GENERR;
+			}
 		}
 	}
 
@@ -2398,6 +2409,7 @@ static audio_stream_t *create_audio_stream(int indev, int outdev)
 			return NULL;
 		}
 	}
+
 	inputParameters.device = indev;
 	if (indev != -1) {
 		inputParameters.channelCount = 1;
@@ -2406,10 +2418,13 @@ static audio_stream_t *create_audio_stream(int indev, int outdev)
 		inputParameters.hostApiSpecificStreamInfo = NULL;
 	}
 	outputParameters.device = outdev;
-	outputParameters.channelCount = 1;
-	outputParameters.sampleFormat = SAMPLE_TYPE;
-	outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
-	outputParameters.hostApiSpecificStreamInfo = NULL;
+
+	if (outdev != -1) {
+		outputParameters.channelCount = 1;
+		outputParameters.sampleFormat = SAMPLE_TYPE;
+		outputParameters.suggestedLatency = Pa_GetDeviceInfo(outputParameters.device)->defaultLowOutputLatency;
+		outputParameters.hostApiSpecificStreamInfo = NULL;
+	}
 	
 	err = open_audio_stream(&(stream->stream), &inputParameters, &outputParameters);
 	if (err != paNoError) {
@@ -2433,13 +2448,15 @@ static audio_stream_t *create_audio_stream(int indev, int outdev)
 
 audio_stream_t *get_audio_stream(int indev, int outdev)
 {
-	audio_stream_t *stream;
+	audio_stream_t *stream = NULL;
 	if (outdev == -1) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error invalid output audio device\n");
+		return NULL;
 	}
 	if (create_codecs(0) != SWITCH_STATUS_SUCCESS) {
 		return NULL;
 	}
+
 	stream = find_audio_stream(indev, outdev, 0);
 	if (stream != NULL) {
 		return stream;
@@ -3287,5 +3304,5 @@ SWITCH_STANDARD_API(pa_cmd)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

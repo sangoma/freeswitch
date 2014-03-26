@@ -187,6 +187,7 @@ SWITCH_DECLARE(void) switch_channel_uninit(switch_channel_t *channel);
   \param caller_profile the profile to assign
 */
 SWITCH_DECLARE(void) switch_channel_set_caller_profile(switch_channel_t *channel, switch_caller_profile_t *caller_profile);
+SWITCH_DECLARE(void) switch_channel_step_caller_profile(switch_channel_t *channel);
 
 /*!
   \brief Retrieve the given channel's caller profile
@@ -201,6 +202,7 @@ SWITCH_DECLARE(switch_caller_profile_t *) switch_channel_get_caller_profile(swit
   \param caller_profile the profile to assign
 */
 SWITCH_DECLARE(void) switch_channel_set_originator_caller_profile(switch_channel_t *channel, switch_caller_profile_t *caller_profile);
+
 
 SWITCH_DECLARE(void) switch_channel_set_hunt_caller_profile(switch_channel_t *channel, switch_caller_profile_t *caller_profile);
 
@@ -217,6 +219,7 @@ SWITCH_DECLARE(switch_caller_profile_t *) switch_channel_get_originator_caller_p
   \param caller_profile the profile to assign
 */
 SWITCH_DECLARE(void) switch_channel_set_originatee_caller_profile(switch_channel_t *channel, switch_caller_profile_t *caller_profile);
+
 
 /*!
   \brief Retrieve the given channel's originatee caller profile
@@ -272,6 +275,7 @@ SWITCH_DECLARE(const char *) switch_channel_get_hold_music(switch_channel_t *cha
 SWITCH_DECLARE(const char *) switch_channel_get_hold_music_partner(switch_channel_t *channel);
 
 SWITCH_DECLARE(uint32_t) switch_channel_del_variable_prefix(switch_channel_t *channel, const char *prefix);
+SWITCH_DECLARE(switch_status_t) switch_channel_transfer_variable_prefix(switch_channel_t *orig_channel, switch_channel_t *new_channel, const char *prefix);
 
 #define switch_channel_set_variable_safe(_channel, _var, _val) switch_channel_set_variable_var_check(_channel, _var, _val, SWITCH_FALSE)
 #define switch_channel_set_variable(_channel, _var, _val) switch_channel_set_variable_var_check(_channel, _var, _val, SWITCH_TRUE)
@@ -331,8 +335,9 @@ SWITCH_DECLARE(switch_status_t) switch_channel_caller_extension_masquerade(switc
 */
 SWITCH_DECLARE(void) switch_channel_set_caller_extension(switch_channel_t *channel, switch_caller_extension_t *caller_extension);
 
+SWITCH_DECLARE(void) switch_channel_invert_cid(switch_channel_t *channel);
 SWITCH_DECLARE(void) switch_channel_flip_cid(switch_channel_t *channel);
-SWITCH_DECLARE(void) switch_channel_sort_cid(switch_channel_t *channel, switch_bool_t in);
+SWITCH_DECLARE(void) switch_channel_sort_cid(switch_channel_t *channel);
 
 /*!
   \brief Retrieve caller extension from a given channel
@@ -600,6 +605,9 @@ SWITCH_DECLARE(void) switch_channel_event_set_extended_data(_In_ switch_channel_
 SWITCH_DECLARE(char *) switch_channel_expand_variables_check(switch_channel_t *channel, const char *in, switch_event_t *var_list, switch_event_t *api_list, uint32_t recur);
 #define switch_channel_expand_variables(_channel, _in) switch_channel_expand_variables_check(_channel, _in, NULL, NULL, 0)
 
+#define switch_channel_inbound_display(_channel) ((switch_channel_direction(_channel) == SWITCH_CALL_DIRECTION_INBOUND && !switch_channel_test_flag(_channel, CF_BLEG)) || (switch_channel_direction(_channel) == SWITCH_CALL_DIRECTION_OUTBOUND && switch_channel_test_flag(_channel, CF_DIALPLAN)))
+
+#define switch_channel_outbound_display(_channel) ((switch_channel_direction(_channel) == SWITCH_CALL_DIRECTION_INBOUND && switch_channel_test_flag(_channel, CF_BLEG)) || (switch_channel_direction(_channel) == SWITCH_CALL_DIRECTION_OUTBOUND && !switch_channel_test_flag(_channel, CF_DIALPLAN)))
 
 SWITCH_DECLARE(char *) switch_channel_build_param_string(_In_ switch_channel_t *channel, _In_opt_ switch_caller_profile_t *caller_profile,
 														 _In_opt_ const char *prefix);
@@ -625,6 +633,8 @@ SWITCH_DECLARE(int) switch_channel_test_app_flag_key(const char *app, switch_cha
 SWITCH_DECLARE(void) switch_channel_set_bridge_time(switch_channel_t *channel);
 SWITCH_DECLARE(void) switch_channel_set_hangup_time(switch_channel_t *channel);
 SWITCH_DECLARE(switch_call_direction_t) switch_channel_direction(switch_channel_t *channel);
+SWITCH_DECLARE(switch_call_direction_t) switch_channel_logical_direction(switch_channel_t *channel);
+SWITCH_DECLARE(void) switch_channel_set_direction(switch_channel_t *channel, switch_call_direction_t direction);
 SWITCH_DECLARE(switch_core_session_t *) switch_channel_get_session(switch_channel_t *channel);
 SWITCH_DECLARE(char *) switch_channel_get_flag_string(switch_channel_t *channel);
 SWITCH_DECLARE(char *) switch_channel_get_cap_string(switch_channel_t *channel);
@@ -642,14 +652,25 @@ SWITCH_DECLARE(void) switch_channel_mark_hold(switch_channel_t *channel, switch_
 
 SWITCH_DECLARE(switch_status_t) switch_channel_execute_on(switch_channel_t *channel, const char *variable_prefix);
 SWITCH_DECLARE(switch_status_t) switch_channel_api_on(switch_channel_t *channel, const char *variable_prefix);
-
+SWITCH_DECLARE(void) switch_channel_process_device_hangup(switch_channel_t *channel);
 SWITCH_DECLARE(switch_caller_extension_t *) switch_channel_get_queued_extension(switch_channel_t *channel);
 SWITCH_DECLARE(void) switch_channel_transfer_to_extension(switch_channel_t *channel, switch_caller_extension_t *caller_extension);
 SWITCH_DECLARE(const char *) switch_channel_get_partner_uuid(switch_channel_t *channel);
 SWITCH_DECLARE(switch_hold_record_t *) switch_channel_get_hold_record(switch_channel_t *channel);
 SWITCH_DECLARE(void) switch_channel_state_thread_lock(switch_channel_t *channel);
 SWITCH_DECLARE(void) switch_channel_state_thread_unlock(switch_channel_t *channel);
-
+SWITCH_DECLARE(switch_status_t) switch_channel_state_thread_trylock(switch_channel_t *channel);
+SWITCH_DECLARE(void) switch_channel_handle_cause(switch_channel_t *channel, switch_call_cause_t cause);
+SWITCH_DECLARE(void) switch_channel_global_init(switch_memory_pool_t *pool);
+SWITCH_DECLARE(void) switch_channel_global_uninit(void);
+SWITCH_DECLARE(const char *) switch_channel_set_device_id(switch_channel_t *channel, const char *device_id);
+SWITCH_DECLARE(void) switch_channel_clear_device_record(switch_channel_t *channel);
+SWITCH_DECLARE(switch_device_record_t *) switch_channel_get_device_record(switch_channel_t *channel);
+SWITCH_DECLARE(void) switch_channel_release_device_record(switch_device_record_t **dcdrp);
+SWITCH_DECLARE(switch_status_t) switch_channel_bind_device_state_handler(switch_device_state_function_t function, void *user_data);
+SWITCH_DECLARE(switch_status_t) switch_channel_unbind_device_state_handler(switch_device_state_function_t function);
+SWITCH_DECLARE(const char *) switch_channel_device_state2str(switch_device_state_t device_state);
+								
 SWITCH_END_EXTERN_C
 #endif
 /* For Emacs:
@@ -660,5 +681,5 @@ SWITCH_END_EXTERN_C
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

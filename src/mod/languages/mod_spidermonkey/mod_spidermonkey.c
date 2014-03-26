@@ -24,7 +24,7 @@
  * Contributor(s):
  * 
  * Anthony Minessale II <anthm@freeswitch.org>
- *
+ * William King <william.king@quentustech.com>
  *
  * mod_spidermonkey.c -- Javascript Module
  *
@@ -247,6 +247,7 @@ static JSBool request_dump_env(JSContext * cx, JSObject * obj, uintN argc, jsval
 		if ((xml = switch_event_xmlize(ro->stream->param_event, SWITCH_VA_NONE))) {
 			xmlstr = switch_xml_toxml(xml, SWITCH_FALSE);
 			*rval = STRING_TO_JSVAL(JS_NewStringCopyZ(cx, xmlstr));
+			free(xmlstr);
 			return JS_TRUE;
 		}
 	} else {
@@ -1095,6 +1096,8 @@ JSObject *new_js_event(switch_event_t *event, char *name, JSContext * cx, JSObje
 		if ((Event = JS_DefineObject(cx, obj, name, &event_class, NULL, 0))) {
 			if ((JS_SetPrivate(cx, Event, eo) && JS_DefineProperties(cx, Event, event_props) && JS_DefineFunctions(cx, Event, event_methods))) {
 			}
+		} else {
+			free(eo);
 		}
 	}
 	return Event;
@@ -1111,6 +1114,8 @@ JSObject *new_js_dtmf(switch_dtmf_t *dtmf, char *name, JSContext * cx, JSObject 
 			JS_SetPrivate(cx, DTMF, ddtmf);
 			JS_DefineProperties(cx, DTMF, dtmf_props);
 			JS_DefineFunctions(cx, DTMF, dtmf_methods);
+		} else {
+			free(ddtmf);
 		}
 	}
 	return DTMF;
@@ -1217,7 +1222,7 @@ static switch_status_t js_stream_input_callback(switch_core_session_t *session, 
 	switch_status_t status;
 	struct input_callback_state *cb_state = buf;
 	switch_file_handle_t *fh = cb_state->extra;
-	struct js_session *jss = cb_state->session_state;
+	//struct js_session *jss = cb_state->session_state;
 
 	if (!switch_test_flag(fh, SWITCH_FILE_OPEN)) {
 		return SWITCH_STATUS_FALSE;
@@ -1285,11 +1290,11 @@ static switch_status_t js_stream_input_callback(switch_core_session_t *session, 
 			switch_core_file_seek(fh, &pos, 0, SEEK_SET);
 			return SWITCH_STATUS_SUCCESS;
 		} else if (!strncasecmp(ret, "seek", 4)) {
-			switch_codec_t *codec;
+			//switch_codec_t *codec;
 			uint32_t samps = 0;
 			uint32_t pos = 0;
 			char *p;
-			codec = switch_core_session_get_read_codec(jss->session);
+			//codec = switch_core_session_get_read_codec(jss->session);
 
 			if ((p = strchr(ret, ':'))) {
 				p++;
@@ -1299,14 +1304,14 @@ static switch_status_t js_stream_input_callback(switch_core_session_t *session, 
 						step = 1000;
 					}
 					if (step > 0) {
-						samps = step * (codec->implementation->actual_samples_per_second / 1000);
+						samps = step * (fh->native_rate / 1000);
 						switch_core_file_seek(fh, &pos, samps, SEEK_CUR);
 					} else {
-						samps = abs(step) * (codec->implementation->actual_samples_per_second / 1000);
+						samps = abs(step) * (fh->native_rate / 1000);
 						switch_core_file_seek(fh, &pos, fh->pos - samps, SEEK_SET);
 					}
 				} else {
-					samps = atoi(p) * (codec->implementation->actual_samples_per_second / 1000);
+					samps = atoi(p) * (fh->native_rate / 1000);
 					switch_core_file_seek(fh, &pos, samps, SEEK_SET);
 				}
 			}
@@ -1968,6 +1973,12 @@ static JSBool session_speak(JSContext * cx, JSObject * obj, uintN argc, jsval * 
 		return JS_FALSE;
 	}
 
+	if (jss->speech && jss->speech->speaking) {
+		eval_some_js("~throw new Error(\"Recursive call not allowed\");", cx, obj, rval);
+		return JS_FALSE;
+	}
+
+
 	if (jss->speech && strcasecmp(jss->speech->sh.name, tts_name)) {
 		destroy_speech_engine(jss);
 	}
@@ -2008,7 +2019,11 @@ static JSBool session_speak(JSContext * cx, JSObject * obj, uintN argc, jsval * 
 	args.buflen = len;
 
 	switch_core_speech_flush_tts(&jss->speech->sh);
-	switch_ivr_speak_text_handle(jss->session, &jss->speech->sh, &jss->speech->codec, NULL, text, &args);
+	if (switch_core_codec_ready(&jss->speech->codec)) {
+		jss->speech->speaking = 1;
+		switch_ivr_speak_text_handle(jss->session, &jss->speech->sh, &jss->speech->codec, NULL, text, &args);
+		jss->speech->speaking = 0;
+	}
 	JS_ResumeRequest(cx, cb_state.saveDepth);
 	check_hangup_hook(jss, &ret);
 	*rval = cb_state.ret;
@@ -3919,5 +3934,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_spidermonkey_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

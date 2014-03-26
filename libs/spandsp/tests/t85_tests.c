@@ -57,9 +57,6 @@ in ITU specifications T.85.
 #define TESTBUF_SIZE        400000
 #define TEST_IMAGE_SIZE     (1951*1960/8)
 
-#define FALSE 0
-#define TRUE (!FALSE)
-
 uint8_t testbuf[TESTBUF_SIZE];
 uint8_t test_image[TEST_IMAGE_SIZE];
 
@@ -219,7 +216,7 @@ static int test_cycle(const char *test_id,
        down the image, will only succeed if a new chunk is started afterwards. */
     if (comment)
         t85_encode_comment(t85_enc, comment, strlen((const char *) comment) + 1);
-    
+
     testbuf_len = 0;
     max_len = 100;
     while ((len = t85_encode_get(t85_enc, &testbuf[testbuf_len], max_len)) > 0)
@@ -321,7 +318,7 @@ static int test_cycle(const char *test_id,
     free(decoded_image);
     t85_decode_release(t85_dec);
     printf("Test passed\n");
-    
+
     return 0;
 }
 /*- End of function --------------------------------------------------------*/

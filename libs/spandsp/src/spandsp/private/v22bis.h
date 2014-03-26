@@ -79,8 +79,8 @@ struct v22bis_state_s
 {
     /*! \brief The maximum permitted bit rate of the modem. Valid values are 1200 and 2400. */
     int bit_rate;
-    /*! \brief TRUE is this is the calling side modem. */
-    int calling_party;
+    /*! \brief True is this is the calling side modem. */
+    bool calling_party;
     /*! \brief The callback function used to get the next bit to be transmitted. */
     get_bit_func_t get_bit;
     /*! \brief A user specified opaque pointer passed to the get_bit callback routine. */
@@ -128,7 +128,7 @@ struct v22bis_state_s
                    routine. */
         void *qam_user_data;
 
-        /*! \brief A power meter, to measure the HPF'ed signal power in the channel. */    
+        /*! \brief A power meter, to measure the HPF'ed signal power in the channel. */
         power_meter_t rx_power;
         /*! \brief The power meter level at which carrier on is declared. */
         int32_t carrier_on_power;
@@ -138,7 +138,7 @@ struct v22bis_state_s
         int constellation_state;
 
 #if defined(SPANDSP_USE_FIXED_POINT)
-        /*! \brief The scaling factor accessed by the AGC algorithm. */
+        /*! \brief The scaling factor assessed by the AGC algorithm. */
         int16_t agc_scaling;
         /*! \brief The root raised cosine (RRC) pulse shaping filter buffer. */
         int16_t rrc_filter[V22BIS_RX_FILTER_STEPS];
@@ -158,7 +158,7 @@ struct v22bis_state_s
         /*! \brief The integral part of the carrier tracking filter. */
         int32_t carrier_track_i;
 #else
-        /*! \brief The scaling factor accessed by the AGC algorithm. */
+        /*! \brief The scaling factor assessed by the AGC algorithm. */
         float agc_scaling;
         /*! \brief The root raised cosine (RRC) pulse shaping filter buffer. */
         float rrc_filter[V22BIS_RX_FILTER_STEPS];
@@ -192,7 +192,7 @@ struct v22bis_state_s
         int total_baud_timing_correction;
         /*! \brief The current fractional phase of the baud timing. */
         int baud_phase;
-    
+
         int sixteen_way_decisions;
 
         int pattern_repeats;

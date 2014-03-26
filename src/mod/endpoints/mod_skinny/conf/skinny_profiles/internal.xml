@@ -12,6 +12,14 @@
     <param name="odbc-dsn" value=""/>
     <param name="debug" value="4"/>
     <param name="auto-restart" value="true"/>
+    <param name="ext-voicemail" value="vmain"/>
+    <param name="ext-redial" value="redial"/>
+    <!-- <param name="ext-meetme" value="conference"/> -->
+
+    <!-- usually place this one on the directory entry for a skinny phone and not global -->
+    <!-- <param name="ext-pickup" value="pickup"/> -->
+
+    <!-- <param name="ext-cfwdall" value="cfwdall"/> -->
   </settings>
   <soft-key-set-sets>
     <soft-key-set-set name="default">

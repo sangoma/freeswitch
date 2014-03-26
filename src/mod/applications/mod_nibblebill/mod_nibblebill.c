@@ -28,9 +28,10 @@
  * Contributor(s):
  * Darren Schreiber <d@d-man.org>
  * Rupa Schomaker <rupa@rupa.com>
+ * Emmanuel Schmidbauer <e.schmidbauer@gmail.com>
  *
  * mod_nibblebill.c - Nibble Billing
- * Purpose is to allow real-time debiting of credit or cash from a database while calls are in progress. I had the following goals: 
+ * Purpose is to allow real-time debiting of credit or cash from a database while calls are in progress. I had the following goals:
  *
  * Debit credit/cash from accounts real-time 
  * Allow for billing at different rates during a single call 
@@ -91,10 +92,13 @@ static struct {
 	/* Other options */
 	int global_heartbeat;		/* Supervise and bill every X seconds, 0 means off */
 
+	/* Channel variable name options */
+	char *var_name_rate;
+	char *var_name_account;
+
 	/* Database settings */
-	char *db_username;
-	char *db_password;
-	char *db_dsn;
+	char *dbname;
+	char *odbc_dsn;
 	char *db_table;
 	char *db_column_cash;
 	char *db_column_account;
@@ -118,9 +122,6 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_nibblebill_shutdown);
 SWITCH_MODULE_DEFINITION(mod_nibblebill, mod_nibblebill_load, mod_nibblebill_shutdown, NULL);
 
 /* String setting functions */
-SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_db_username, globals.db_username);
-SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_db_password, globals.db_password);
-SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_db_dsn, globals.db_dsn);
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_db_table, globals.db_table);
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_db_column_cash, globals.db_column_cash);
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_db_column_account, globals.db_column_account);
@@ -129,6 +130,26 @@ SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_custom_sql_lookup, globals.custom_s
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_percall_action, globals.percall_action);
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_lowbal_action, globals.lowbal_action);
 SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_nobal_action, globals.nobal_action);
+SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_var_name_rate, globals.var_name_rate);
+SWITCH_DECLARE_GLOBAL_STRING_FUNC(set_global_var_name_account, globals.var_name_account);
+
+static switch_cache_db_handle_t *nibblebill_get_db_handle(void)
+{
+	switch_cache_db_handle_t *dbh = NULL;
+	char *dsn;
+	
+	if (!zstr(globals.odbc_dsn)) {
+		dsn = globals.odbc_dsn;
+	} else {
+		dsn = globals.dbname;
+	}
+
+	if (switch_cache_db_get_db_handle_dsn(&dbh, dsn) != SWITCH_STATUS_SUCCESS) {
+		dbh = NULL;
+	}
+	
+	return dbh;
+}
 
 static int nibblebill_callback(void *pArg, int argc, char **argv, char **columnNames)
 {
@@ -144,9 +165,45 @@ static int nibblebill_callback(void *pArg, int argc, char **argv, char **columnN
 	return 0;
 }
 
-static switch_status_t load_config(void)
+static switch_bool_t nibblebill_execute_sql_callback(char *sql, switch_core_db_callback_func_t callback, void *pdata)
+{
+	switch_bool_t retval = SWITCH_FALSE;
+	switch_cache_db_handle_t *dbh = NULL;
+	
+	if (globals.odbc_dsn && (dbh = nibblebill_get_db_handle())) {
+		if (switch_cache_db_execute_sql_callback(dbh, sql, callback, pdata, NULL) != SWITCH_STATUS_SUCCESS) {
+			retval = SWITCH_FALSE;
+		} else {
+			retval = SWITCH_TRUE;
+		}
+	}
+	switch_cache_db_release_db_handle(&dbh);
+	return retval;
+}
+
+static switch_bool_t nibblebill_execute_sql(char *sql)
+{
+	switch_bool_t retval = SWITCH_FALSE;
+	switch_cache_db_handle_t *dbh = NULL;
+
+	if (globals.odbc_dsn && (dbh = nibblebill_get_db_handle())) {
+
+		if ( switch_cache_db_execute_sql(dbh, sql, NULL ) != SWITCH_STATUS_SUCCESS ) {
+			retval = SWITCH_FALSE;
+		} else {
+			retval = SWITCH_TRUE;
+		}
+	}
+	switch_cache_db_release_db_handle(&dbh);
+
+	return retval;
+}
+
+
+static switch_status_t nibblebill_load_config(void)
 {
 	char *cf = "nibblebill.conf";
+	switch_cache_db_handle_t *dbh = NULL;
 	switch_xml_t cfg, xml = NULL, param, settings;
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
 
@@ -160,13 +217,16 @@ static switch_status_t load_config(void)
 		for (param = switch_xml_child(settings, "param"); param; param = param->next) {
 			char *var = (char *) switch_xml_attr_soft(param, "name");
 			char *val = (char *) switch_xml_attr_soft(param, "value");
-
-			if (!strcasecmp(var, "db_username")) {
-				set_global_db_username(val);
-			} else if (!strcasecmp(var, "db_password")) {
-				set_global_db_password(val);
-			} else if (!strcasecmp(var, "db_dsn")) {
-				set_global_db_dsn(val);
+			
+			if (!strcasecmp(var, "odbc-dsn") && !zstr(val)) {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "odbc_dsn is %s\n", val);
+				switch_safe_free(globals.odbc_dsn);
+				globals.odbc_dsn = strdup(val);
+			} else if (!strcasecmp(var, "db_dsn") && !zstr(val)) {
+				/* For backwards-compatibility */
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "this nibblebill param(db_dsn) is deprecated and will be removed in 1.4 - odbc_dsn is %s\n", val);
+				switch_safe_free(globals.odbc_dsn);
+				globals.odbc_dsn = strdup(val);
 			} else if (!strcasecmp(var, "db_table")) {
 				set_global_db_table(val);
 			} else if (!strcasecmp(var, "db_column_cash")) {
@@ -189,11 +249,16 @@ static switch_status_t load_config(void)
 				set_global_nobal_action(val);
 			} else if (!strcasecmp(var, "nobal_amt")) {
 				globals.nobal_amt = atof(val);
+			} else if (!strcasecmp(var, "var_name_rate")) {
+				set_global_var_name_rate(val);
+			} else if (!strcasecmp(var, "var_name_account")) {
+				set_global_var_name_account(val);
 			} else if (!strcasecmp(var, "global_heartbeat")) {
 				globals.global_heartbeat = atoi(val);
 			}
 		}
 	}
+	
 
 /* Set defaults for any variables still not set */
   setdefaults:
@@ -206,29 +271,22 @@ static switch_status_t load_config(void)
 	if (zstr(globals.nobal_action)) {
 		set_global_nobal_action("hangup");
 	}
+	if (zstr(globals.var_name_rate)) {
+		set_global_var_name_rate("nibble_rate");
+	}
+	if (zstr(globals.var_name_account)) {
+		set_global_var_name_account("nibble_account");
+	}
 
-	if (switch_odbc_available() && globals.db_dsn) {
-		if (!(globals.master_odbc = switch_odbc_handle_new(globals.db_dsn, globals.db_username, globals.db_password))) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Cannot create handle to ODBC Database!\n");
-			status = SWITCH_STATUS_FALSE;
-			goto done;
-		} else {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Opened ODBC Database handle!\n");
+	if (globals.odbc_dsn) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG
+						  , "dsn is \"%s\"\n"
+						  , globals.odbc_dsn
+						  );
+		if (!(dbh = nibblebill_get_db_handle())) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Cannot Open ODBC Database!\n");
+			switch_goto_status(SWITCH_STATUS_FALSE, done);
 		}
-
-		if (switch_odbc_handle_connect(globals.master_odbc) != SWITCH_ODBC_SUCCESS) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT,
-							  "Cannot connect to ODBC driver/database %s (user: %s / pass %s)!\n",
-							  globals.db_dsn, globals.db_username, globals.db_password);
-			status = SWITCH_STATUS_FALSE;
-			goto done;
-		} else {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Opened ODBC Database!\n");
-		}
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Connected ODBC DSN: %s\n", globals.db_dsn);
-	} else {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT,
-						  "ODBC does not appear to be installed in the core or your dsn is empty. You need to run ./configure --enable-core-odbc-support\n");
 	}
 
   done:
@@ -311,15 +369,10 @@ static void transfer_call(switch_core_session_t *session, char *destination)
 }
 
 /* At this time, billing never succeeds if you don't have a database. */
-static switch_status_t bill_event(double billamount, const char *billaccount, switch_channel_t *channel)
+static switch_bool_t bill_event(double billamount, const char *billaccount, switch_channel_t *channel)
 {
 	char *sql = NULL, *dsql = NULL;
-	switch_odbc_statement_handle_t stmt = NULL;
-	switch_status_t status = SWITCH_STATUS_FALSE;
-
-	if (!switch_odbc_available()) {
-		return status;
-	}
+	switch_bool_t status = SWITCH_FALSE;
 
 	if (globals.custom_sql_save) {
 		if (switch_string_var_check_const(globals.custom_sql_save) || switch_string_has_escaped_data(globals.custom_sql_save)) {
@@ -336,35 +389,17 @@ static switch_status_t bill_event(double billamount, const char *billaccount, sw
 	}
 
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Doing update query\n[%s]\n", sql);
-
-	if (switch_odbc_handle_exec(globals.master_odbc, sql, &stmt, NULL) != SWITCH_ODBC_SUCCESS) {
-		char *err_str;
-		err_str = switch_odbc_handle_get_error(globals.master_odbc, stmt);
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "ERR: [%s]\n[%s]\n", sql, switch_str_nil(err_str));
-		switch_safe_free(err_str);
-	} else {
-		status = SWITCH_STATUS_SUCCESS;
-	}
-
-	if (stmt) {
-		switch_odbc_statement_handle_free(&stmt);
-	}
-	
+	status = nibblebill_execute_sql(sql);
 	switch_safe_free(dsql);
 
 	return status;
 }
-
 
 static double get_balance(const char *billaccount, switch_channel_t *channel)
 {
 	char *dsql = NULL, *sql = NULL;
 	nibblebill_results_t pdata;
 	double balance = 0.0;
-
-	if (!switch_odbc_available()) {
-		return -1.0;
-	}
 
 	memset(&pdata, 0, sizeof(pdata));
 
@@ -381,11 +416,9 @@ static double get_balance(const char *billaccount, switch_channel_t *channel)
 	}
 
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Doing lookup query\n[%s]\n", sql);
-	
-	if (switch_odbc_handle_callback_exec(globals.master_odbc, sql, nibblebill_callback, &pdata, NULL) != SWITCH_ODBC_SUCCESS) {
+	if (nibblebill_execute_sql_callback(sql, nibblebill_callback, &pdata) != SWITCH_TRUE) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error running this query: [%s]\n", sql);
 		/* Return -1 for safety */
-
 		balance = -1.0;
 	} else {
 		/* Successfully retrieved! */
@@ -433,10 +466,10 @@ static switch_status_t do_billing(switch_core_session_t *session)
 	}
 
 	/* Variables kept in FS but relevant only to this module */
-	billrate = switch_channel_get_variable(channel, "nibble_rate");
+	billrate = switch_channel_get_variable(channel, globals.var_name_rate);
 	billincrement = switch_channel_get_variable(channel, "nibble_increment");
-	billaccount = switch_channel_get_variable(channel, "nibble_account");
-	
+	billaccount = switch_channel_get_variable(channel, globals.var_name_account);
+
 	if (!zstr(switch_channel_get_variable(channel, "nobal_amt"))) {
 		nobal_amt = atof(switch_channel_get_variable(channel, "nobal_amt"));
 	}
@@ -529,7 +562,7 @@ static switch_status_t do_billing(switch_core_session_t *session)
 						  uuid, nibble_data->total);
 
 		/* DO ODBC BILLING HERE and reset counters if it's successful! */
-		if (bill_event(billamount, billaccount, channel) == SWITCH_STATUS_SUCCESS) {
+		if (bill_event(billamount, billaccount, channel) == SWITCH_TRUE) {
 			/* Increment total cost */
 			nibble_data->total += billamount;
 
@@ -581,14 +614,12 @@ static switch_status_t do_billing(switch_core_session_t *session)
 		}
 	}
 
-
 	/* Done changing - release lock */
 	if (globals.mutex) {
 		switch_mutex_unlock(globals.mutex);
 	}
 
 	/* Go check if this call is allowed to continue */
-
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -693,7 +724,7 @@ static void nibblebill_resume(switch_core_session_t *session)
 		switch_mutex_lock(globals.mutex);
 	}
 
-	billrate = switch_channel_get_variable(channel, "nibble_rate");
+	billrate = switch_channel_get_variable(channel, globals.var_name_rate);
 
 	/* Calculate how much was "lost" to billings during pause - we do this here because you never know when the billrate may change during a call */
 	nibble_data->bill_adjustments += (atof(billrate) / 1000000 / 60) * ((ts - nibble_data->pausets));
@@ -786,7 +817,7 @@ static void nibblebill_adjust(switch_core_session_t *session, double amount)
 
 	/* Variables kept in FS but relevant only to this module */
 
-	billaccount = switch_channel_get_variable(channel, "nibble_account");
+	billaccount = switch_channel_get_variable(channel, globals.var_name_account);
 
 	/* Return if there's no billing information on this session */
 	if (!billaccount) {
@@ -794,7 +825,7 @@ static void nibblebill_adjust(switch_core_session_t *session, double amount)
 	}
 
 	/* Add or remove amount from adjusted billing here. Note, we bill the OPPOSITE */
-	if (bill_event(-amount, billaccount, channel) == SWITCH_STATUS_SUCCESS) {
+	if (bill_event(-amount, billaccount, channel) == SWITCH_TRUE) {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_INFO, "Recorded adjustment to %s for $%f\n", billaccount, amount);
 	} else {
 		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Failed to record adjustment to %s for $%f\n", billaccount, amount);
@@ -886,9 +917,9 @@ static switch_status_t sched_billing(switch_core_session_t *session)
 	}
 
 	/* Variables kept in FS but relevant only to this module */
-	billrate = switch_channel_get_variable(channel, "nibble_rate");
-	billaccount = switch_channel_get_variable(channel, "nibble_account");
-	
+	billrate = switch_channel_get_variable(channel, globals.var_name_rate);
+	billaccount = switch_channel_get_variable(channel, globals.var_name_account);
+
 	/* Return if there's no billing information on this session */
 	if (!billrate || !billaccount) {
 		return SWITCH_STATUS_SUCCESS;
@@ -916,7 +947,7 @@ static switch_status_t process_hangup(switch_core_session_t *session)
 	/* Now go handle like normal billing */
 	do_billing(session);
 
-	billaccount = switch_channel_get_variable(channel, "nibble_account");
+	billaccount = switch_channel_get_variable(channel, globals.var_name_account);
 	if (billaccount) {
 		switch_channel_set_variable_printf(channel, "nibble_current_balance", "%f", get_balance(billaccount, channel));
 	}			
@@ -955,7 +986,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_nibblebill_load)
 	globals.pool = pool;
 	switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, globals.pool);
 
-	load_config();
+	nibblebill_load_config();
 
 	/* connect my internal structure to the blank pointer passed to me */
 	*module_interface = switch_loadable_module_create_module_interface(pool, modname);
@@ -987,10 +1018,9 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_nibblebill_shutdown)
 	switch_event_unbind(&globals.node);
 	switch_core_remove_state_handler(&nibble_state_handler);
 	switch_odbc_handle_disconnect(globals.master_odbc);
-
-	switch_safe_free(globals.db_username);
-	switch_safe_free(globals.db_password);
-	switch_safe_free(globals.db_dsn);
+	
+	switch_safe_free(globals.dbname);
+	switch_safe_free(globals.odbc_dsn);
 	switch_safe_free(globals.db_table);
 	switch_safe_free(globals.db_column_cash);
 	switch_safe_free(globals.db_column_account);
@@ -999,6 +1029,8 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_nibblebill_shutdown)
 	switch_safe_free(globals.percall_action);
 	switch_safe_free(globals.lowbal_action);
 	switch_safe_free(globals.nobal_action);
+	switch_safe_free(globals.var_name_rate);
+	switch_safe_free(globals.var_name_account);
 
 	return SWITCH_STATUS_UNLOAD;
 }
@@ -1011,5 +1043,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_nibblebill_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

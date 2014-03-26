@@ -1706,15 +1706,16 @@ static int _wrap_new_IVRMenu(lua_State* L) {
   char *arg8 = (char *) 0 ;
   char *arg9 = (char *) 0 ;
   char *arg10 = (char *) 0 ;
-  int arg11 ;
+  char *arg11 = (char *) 0 ;
   int arg12 ;
   int arg13 ;
   int arg14 ;
   int arg15 ;
   int arg16 ;
+  int arg17 ;
   IVRMenu *result = 0 ;
   
-  SWIG_check_num_args("IVRMenu",16,16)
+  SWIG_check_num_args("IVRMenu",17,17)
   if(!SWIG_isptrtype(L,1)) SWIG_fail_arg("IVRMenu",1,"IVRMenu *");
   if(!lua_isstring(L,2)) SWIG_fail_arg("IVRMenu",2,"char const *");
   if(!lua_isstring(L,3)) SWIG_fail_arg("IVRMenu",3,"char const *");
@@ -1725,12 +1726,13 @@ static int _wrap_new_IVRMenu(lua_State* L) {
   if(!lua_isstring(L,8)) SWIG_fail_arg("IVRMenu",8,"char const *");
   if(!lua_isstring(L,9)) SWIG_fail_arg("IVRMenu",9,"char const *");
   if(!lua_isstring(L,10)) SWIG_fail_arg("IVRMenu",10,"char const *");
-  if(!lua_isnumber(L,11)) SWIG_fail_arg("IVRMenu",11,"int");
+  if(!lua_isstring(L,11)) SWIG_fail_arg("IVRMenu",11,"char const *");
   if(!lua_isnumber(L,12)) SWIG_fail_arg("IVRMenu",12,"int");
   if(!lua_isnumber(L,13)) SWIG_fail_arg("IVRMenu",13,"int");
   if(!lua_isnumber(L,14)) SWIG_fail_arg("IVRMenu",14,"int");
   if(!lua_isnumber(L,15)) SWIG_fail_arg("IVRMenu",15,"int");
   if(!lua_isnumber(L,16)) SWIG_fail_arg("IVRMenu",16,"int");
+  if(!lua_isnumber(L,17)) SWIG_fail_arg("IVRMenu",17,"int");
   
   if (!SWIG_IsOK(SWIG_ConvertPtr(L,1,(void**)&arg1,SWIGTYPE_p_IVRMenu,0))){
     SWIG_fail_ptr("new_IVRMenu",1,SWIGTYPE_p_IVRMenu);
@@ -1745,13 +1747,14 @@ static int _wrap_new_IVRMenu(lua_State* L) {
   arg8 = (char *)lua_tostring(L, 8);
   arg9 = (char *)lua_tostring(L, 9);
   arg10 = (char *)lua_tostring(L, 10);
-  arg11 = (int)lua_tonumber(L, 11);
+  arg11 = (char *)lua_tostring(L, 11);
   arg12 = (int)lua_tonumber(L, 12);
   arg13 = (int)lua_tonumber(L, 13);
   arg14 = (int)lua_tonumber(L, 14);
   arg15 = (int)lua_tonumber(L, 15);
   arg16 = (int)lua_tonumber(L, 16);
-  result = (IVRMenu *)new IVRMenu(arg1,(char const *)arg2,(char const *)arg3,(char const *)arg4,(char const *)arg5,(char const *)arg6,(char const *)arg7,(char const *)arg8,(char const *)arg9,(char const *)arg10,arg11,arg12,arg13,arg14,arg15,arg16);
+  arg17 = (int)lua_tonumber(L, 17);
+  result = (IVRMenu *)new IVRMenu(arg1,(char const *)arg2,(char const *)arg3,(char const *)arg4,(char const *)arg5,(char const *)arg6,(char const *)arg7,(char const *)arg8,(char const *)arg9,(char const *)arg10,(char const *)arg11,arg12,arg13,arg14,arg15,arg16,arg17);
   SWIG_arg=0;
   SWIG_NewPointerObj(L,result,SWIGTYPE_p_IVRMenu,1); SWIG_arg++; 
   return SWIG_arg;
@@ -3845,6 +3848,30 @@ fail:
 }
 
 
+static int _wrap_EventConsumer_cleanup(lua_State* L) {
+  int SWIG_arg = -1;
+  EventConsumer *arg1 = (EventConsumer *) 0 ;
+  
+  SWIG_check_num_args("cleanup",1,1)
+  if(!SWIG_isptrtype(L,1)) SWIG_fail_arg("cleanup",1,"EventConsumer *");
+  
+  if (!SWIG_IsOK(SWIG_ConvertPtr(L,1,(void**)&arg1,SWIGTYPE_p_EventConsumer,0))){
+    SWIG_fail_ptr("EventConsumer_cleanup",1,SWIGTYPE_p_EventConsumer);
+  }
+  
+  (arg1)->cleanup();
+  SWIG_arg=0;
+  
+  return SWIG_arg;
+  
+  if(0) SWIG_fail;
+  
+fail:
+  lua_error(L);
+  return SWIG_arg;
+}
+
+
 static void swig_delete_EventConsumer(void *obj) {
 EventConsumer *arg1 = (EventConsumer *) obj;
 delete arg1;
@@ -3852,6 +3879,7 @@ delete arg1;
 static swig_lua_method swig_EventConsumer_methods[] = {
     {"bind", _wrap_EventConsumer_bind}, 
     {"pop", _wrap_EventConsumer_pop}, 
+    {"cleanup", _wrap_EventConsumer_cleanup}, 
     {0,0}
 };
 static swig_lua_attribute swig_EventConsumer_attributes[] = {
@@ -5088,6 +5116,36 @@ fail:
 }
 
 
+static int _wrap_CoreSession_set_tts_params(lua_State* L) {
+  int SWIG_arg = -1;
+  CoreSession *arg1 = (CoreSession *) 0 ;
+  char *arg2 = (char *) 0 ;
+  char *arg3 = (char *) 0 ;
+  
+  SWIG_check_num_args("set_tts_params",3,3)
+  if(!SWIG_isptrtype(L,1)) SWIG_fail_arg("set_tts_params",1,"CoreSession *");
+  if(!lua_isstring(L,2)) SWIG_fail_arg("set_tts_params",2,"char *");
+  if(!lua_isstring(L,3)) SWIG_fail_arg("set_tts_params",3,"char *");
+  
+  if (!SWIG_IsOK(SWIG_ConvertPtr(L,1,(void**)&arg1,SWIGTYPE_p_CoreSession,0))){
+    SWIG_fail_ptr("CoreSession_set_tts_params",1,SWIGTYPE_p_CoreSession);
+  }
+  
+  arg2 = (char *)lua_tostring(L, 2);
+  arg3 = (char *)lua_tostring(L, 3);
+  (arg1)->set_tts_params(arg2,arg3);
+  SWIG_arg=0;
+  
+  return SWIG_arg;
+  
+  if(0) SWIG_fail;
+  
+fail:
+  lua_error(L);
+  return SWIG_arg;
+}
+
+
 static int _wrap_CoreSession_collectDigits__SWIG_0(lua_State* L) {
   int SWIG_arg = -1;
   CoreSession *arg1 = (CoreSession *) 0 ;
@@ -6085,6 +6143,36 @@ fail:
 }
 
 
+static int _wrap_CoreSession_consoleLog(lua_State* L) {
+  int SWIG_arg = -1;
+  CoreSession *arg1 = (CoreSession *) 0 ;
+  char *arg2 = (char *) 0 ;
+  char *arg3 = (char *) 0 ;
+  
+  SWIG_check_num_args("consoleLog",3,3)
+  if(!SWIG_isptrtype(L,1)) SWIG_fail_arg("consoleLog",1,"CoreSession *");
+  if(!lua_isstring(L,2)) SWIG_fail_arg("consoleLog",2,"char *");
+  if(!lua_isstring(L,3)) SWIG_fail_arg("consoleLog",3,"char *");
+  
+  if (!SWIG_IsOK(SWIG_ConvertPtr(L,1,(void**)&arg1,SWIGTYPE_p_CoreSession,0))){
+    SWIG_fail_ptr("CoreSession_consoleLog",1,SWIGTYPE_p_CoreSession);
+  }
+  
+  arg2 = (char *)lua_tostring(L, 2);
+  arg3 = (char *)lua_tostring(L, 3);
+  (arg1)->consoleLog(arg2,arg3);
+  SWIG_arg=0;
+  
+  return SWIG_arg;
+  
+  if(0) SWIG_fail;
+  
+fail:
+  lua_error(L);
+  return SWIG_arg;
+}
+
+
 static void swig_delete_CoreSession(void *obj) {
 CoreSession *arg1 = (CoreSession *) obj;
 delete arg1;
@@ -6110,6 +6198,7 @@ static swig_lua_method swig_CoreSession_methods[] = {
     {"setDTMFCallback", _wrap_CoreSession_setDTMFCallback}, 
     {"speak", _wrap_CoreSession_speak}, 
     {"set_tts_parms", _wrap_CoreSession_set_tts_parms}, 
+    {"set_tts_params", _wrap_CoreSession_set_tts_params}, 
     {"collectDigits", _wrap_CoreSession_collectDigits}, 
     {"getDigits", _wrap_CoreSession_getDigits}, 
     {"transfer", _wrap_CoreSession_transfer}, 
@@ -6136,6 +6225,7 @@ static swig_lua_method swig_CoreSession_methods[] = {
     {"get_cb_args", _wrap_CoreSession_get_cb_args}, 
     {"check_hangup_hook", _wrap_CoreSession_check_hangup_hook}, 
     {"run_dtmf_callback", _wrap_CoreSession_run_dtmf_callback}, 
+    {"consoleLog", _wrap_CoreSession_consoleLog}, 
     {0,0}
 };
 static swig_lua_attribute swig_CoreSession_attributes[] = {
@@ -6202,10 +6292,10 @@ static int _wrap_msleep(lua_State* L) {
   int SWIG_arg = -1;
   unsigned int arg1 ;
   
-  SWIG_check_num_args("msleep",1,1)
-  if(!lua_isnumber(L,1)) SWIG_fail_arg("msleep",1,"unsigned int");
+  SWIG_check_num_args("switch_msleep",1,1)
+  if(!lua_isnumber(L,1)) SWIG_fail_arg("switch_msleep",1,"unsigned int");
   arg1 = (unsigned int)lua_tonumber(L, 1);
-  msleep(arg1);
+  switch_msleep(arg1);
   SWIG_arg=0;
   
   return SWIG_arg;

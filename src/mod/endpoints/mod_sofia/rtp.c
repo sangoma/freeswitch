@@ -261,7 +261,7 @@ static switch_call_cause_t channel_outgoing_channel(switch_core_session_t *sessi
     
     if (!(tech_pvt->rtp_session = switch_rtp_new(local_addr, local_port, remote_addr, remote_port, tech_pvt->agreed_pt,
                                            tech_pvt->read_codec.implementation->samples_per_packet, ptime * 1000,
-                                             flags, "soft", &err, switch_core_session_get_pool(*new_session)))) {
+                                             0, "soft", &err, switch_core_session_get_pool(*new_session)))) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Couldn't setup RTP session: [%s]\n", err);
         goto fail;
     }
@@ -304,7 +304,7 @@ static switch_status_t channel_on_init(switch_core_session_t *session)
 
 static switch_status_t channel_on_destroy(switch_core_session_t *session)
 {
-    crtp_private_t *tech_pvt = switch_core_session_get_private(session);
+    crtp_private_t *tech_pvt = NULL;
     
  	if ((tech_pvt = switch_core_session_get_private(session))) {
         
@@ -554,7 +554,7 @@ static switch_status_t channel_receive_message(switch_core_session_t *session, s
 	assert(tech_pvt != NULL);
     
     switch (msg->message_id) {
-        case SWITCH_MESSAGE_INDICATE_DEBUG_AUDIO:
+        case SWITCH_MESSAGE_INDICATE_DEBUG_MEDIA:
         {
             if (switch_rtp_ready(tech_pvt->rtp_session) && !zstr(msg->string_array_arg[0]) && !zstr(msg->string_array_arg[1])) {
                 int32_t flags = 0;

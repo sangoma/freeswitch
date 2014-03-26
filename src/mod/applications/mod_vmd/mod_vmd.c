@@ -210,6 +210,8 @@ static switch_bool_t vmd_callback(switch_media_bug_t *bug, void *user_data, swit
 	case SWITCH_ABC_TYPE_CLOSE:
 	case SWITCH_ABC_TYPE_READ:
 	case SWITCH_ABC_TYPE_WRITE:
+	case SWITCH_ABC_TYPE_TAP_NATIVE_READ:
+	case SWITCH_ABC_TYPE_TAP_NATIVE_WRITE:
 		break;
 
 	case SWITCH_ABC_TYPE_READ_REPLACE:
@@ -745,5 +747,5 @@ SWITCH_STANDARD_API(vmd_api_main)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

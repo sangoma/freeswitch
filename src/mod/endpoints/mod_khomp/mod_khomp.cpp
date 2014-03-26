@@ -791,8 +791,8 @@ switch_status_t khompReceiveMessage(switch_core_session_t *session, switch_core_
         case SWITCH_MESSAGE_INDICATE_SIMPLIFY:
             DBG(FUNC, PVT_FMT(tech_pvt->_target, "SWITCH_MESSAGE_INDICATE_SIMPLIFY")); 
             break;
-        case SWITCH_MESSAGE_INDICATE_DEBUG_AUDIO:
-            DBG(FUNC, PVT_FMT(tech_pvt->_target, "SWITCH_MESSAGE_INDICATE_DEBUG_AUDIO")); 
+        case SWITCH_MESSAGE_INDICATE_DEBUG_MEDIA:
+            DBG(FUNC, PVT_FMT(tech_pvt->_target, "SWITCH_MESSAGE_INDICATE_DEBUG_MEDIA")); 
             break;
         case SWITCH_MESSAGE_INDICATE_PROXY_MEDIA:
             DBG(FUNC, PVT_FMT(tech_pvt->_target, "SWITCH_MESSAGE_INDICATE_PROXY_MEDIA")); 
@@ -1520,5 +1520,5 @@ extern "C" void Kstdcall khompAudioListener (int32 deviceid, int32 objectid, byt
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4 expandtab:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet expandtab:
  */

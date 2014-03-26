@@ -191,7 +191,7 @@ SWITCH_DECLARE(void) switch_generate_sln_silence(int16_t *data, uint32_t samples
 	assert(divisor);
 
 	if (divisor == (uint32_t)-1) {
-		memset(data, 0, sizeof(*data));
+		memset(data, 0, samples * 2);
 		return;
 	}
 
@@ -273,24 +273,17 @@ SWITCH_DECLARE(uint32_t) switch_unmerge_sln(int16_t *data, uint32_t samples, int
 
 SWITCH_DECLARE(void) switch_mux_channels(int16_t *data, switch_size_t samples, uint32_t channels)
 {
-	int16_t *buf;
-	switch_size_t len = samples * sizeof(int16_t);
 	switch_size_t i = 0;
-	uint32_t j = 0, k = 0;
-
-	switch_zmalloc(buf, len);
+	uint32_t j = 0;
 
 	for (i = 0; i < samples; i++) {
+		int32_t z = 0;
 		for (j = 0; j < channels; j++) {
-			int32_t z = buf[i] + data[k++];
+			z += data[i * channels + j];
 			switch_normalize_to_16bit(z);
-			buf[i] = (int16_t) z;
+			data[i] = (int16_t) z;
 		}
 	}
-
-	memcpy(data, buf, len);
-	free(buf);
-
 }
 
 SWITCH_DECLARE(void) switch_change_sln_volume_granular(int16_t *data, uint32_t samples, int32_t vol)
@@ -375,5 +368,5 @@ SWITCH_DECLARE(void) switch_change_sln_volume(int16_t *data, uint32_t samples, i
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

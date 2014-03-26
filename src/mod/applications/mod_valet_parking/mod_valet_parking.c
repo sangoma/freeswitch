@@ -24,6 +24,7 @@
  * Contributor(s):
  * 
  * Anthony Minessale II <anthm@freeswitch.org>
+ * William King <william.king@quentustech.com>
  *
  * mod_valet_parking.c -- Valet Parking Module
  *
@@ -207,7 +208,7 @@ static valet_token_t *next_id(switch_core_session_t *session, valet_lot_t *lot, 
 		}
 	}
 
-	for (i = min; (i < max || max == 0); i++) {
+	for (i = min; (i <= max || max == 0); i++) {
 		switch_snprintf(buf, sizeof(buf), "%d", i);
 		switch_mutex_lock(lot->mutex);
 		token = (valet_token_t *) switch_core_hash_find(lot->hash, buf);
@@ -286,7 +287,7 @@ static void valet_send_presence(const char *lot_name, valet_lot_t *lot, valet_to
 	}
 	
 	if (zstr(domain_name)) {
-		dup_domain_name = switch_core_get_variable_dup("domain");
+		dup_domain_name = switch_core_get_domain(SWITCH_TRUE);
 		domain_name = dup_domain_name;
 	}
 	
@@ -554,7 +555,7 @@ SWITCH_STANDARD_APP(valet_parking_function)
 						token->timeout = 0;
 						token->bridged = 1;
 						
-						switch_ivr_uuid_bridge(switch_core_session_get_uuid(session), token->uuid);
+						switch_ivr_uuid_bridge(token->uuid, switch_core_session_get_uuid(session));
 
 						return;
 					}
@@ -648,6 +649,8 @@ SWITCH_STANDARD_APP(valet_parking_function)
 			switch_channel_event_set_data(channel, event);
 			switch_event_fire(&event);
 		}
+
+		switch_channel_set_variable(channel, "valet_lot_extension", ext);
 
 		valet_send_presence(lot_name, lot, token, SWITCH_TRUE);
 
@@ -802,24 +805,22 @@ static void pres_event_handler(switch_event_t *event)
 
 		if (count) {
 			if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
-				if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
-					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "login", lot_name);
+				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "from", "%s@%s", lot_name, domain_name);
 
-					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "force-status", "Active (%d caller%s)", count, count == 1 ? "" : "s");
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "active");
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
-					switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_ROUTING");
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "confirmed");
-					switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "call-direction", "inbound");
-					switch_event_fire(&event);
-				}
-				found++;
+				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "force-status", "Active (%d caller%s)", count, count == 1 ? "" : "s");
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "rpid", "active");
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "event_type", "presence");
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "alt_event_type", "dialog");
+				switch_event_add_header(event, SWITCH_STACK_BOTTOM, "event_count", "%d", EC++);
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "unique-id", lot_name);
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "channel-state", "CS_ROUTING");
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "answer-state", "confirmed");
+				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "call-direction", "inbound");
+				switch_event_fire(&event);
 			}
+			found++;
 		} else {
 			if (switch_event_create(&event, SWITCH_EVENT_PRESENCE_IN) == SWITCH_STATUS_SUCCESS) {
 				switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, "proto", VALET_PROTO);
@@ -885,6 +886,7 @@ static void pres_event_handler(switch_event_t *event)
 
 				switch_mutex_unlock(lot->mutex);
 			}
+			switch_console_free_matches(&matches);
 		}
 	}
 
@@ -947,5 +949,5 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_valet_parking_load)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet
  */

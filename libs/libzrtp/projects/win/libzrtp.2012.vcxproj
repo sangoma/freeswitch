@@ -174,7 +174,6 @@
     <ClInclude Include="..\..\include\zrtp_engine.h" />
     <ClInclude Include="..\..\include\zrtp_error.h" />
     <ClInclude Include="..\..\include\zrtp_iface.h" />
-    <ClInclude Include="..\..\include\zrtp_iface_builtin.h" />
     <ClInclude Include="..\..\include\zrtp_iface_cache.h" />
     <ClInclude Include="..\..\include\zrtp_iface_system.h" />
     <ClInclude Include="..\..\include\zrtp_legal.h" />
@@ -186,7 +185,6 @@
     <ClInclude Include="..\..\include\zrtp_srtp_builtin.h" />
     <ClInclude Include="..\..\include\zrtp_string.h" />
     <ClInclude Include="..\..\include\zrtp_types.h" />
-    <ClInclude Include="..\..\include\zrtp_utils.h" />
     <ClInclude Include="..\..\include\zrtp_version.h" />
     <ClInclude Include="..\..\third_party\bnlib\bn.h" />
     <ClInclude Include="..\..\third_party\bnlib\bn32.h" />
@@ -209,6 +207,8 @@
     <ClCompile Include="..\..\src\zrtp_crc.c" />
     <ClCompile Include="..\..\src\zrtp_crypto_aes.c" />
     <ClCompile Include="..\..\src\zrtp_crypto_atl.c" />
+    <ClCompile Include="..\..\src\zrtp_crypto_ec.c" />
+    <ClCompile Include="..\..\src\zrtp_crypto_ecdh.c" />
     <ClCompile Include="..\..\src\zrtp_crypto_hash.c" />
     <ClCompile Include="..\..\src\zrtp_crypto_pk.c" />
     <ClCompile Include="..\..\src\zrtp_crypto_sas.c" />

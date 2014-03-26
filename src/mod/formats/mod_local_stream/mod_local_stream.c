@@ -25,6 +25,7 @@
  * 
  * Anthony Minessale II <anthm@freeswitch.org>
  * Cesar Cepeda <cesar@auronix.com>
+ * Emmanuel Schmidbauer <e.schmidbauer@gmail.com>
  *
  *
  * mod_local_stream.c -- Local Streaming Audio
@@ -38,6 +39,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_local_stream_load);
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_local_stream_shutdown);
 SWITCH_MODULE_DEFINITION(mod_local_stream, mod_local_stream_load, mod_local_stream_shutdown, NULL);
 
+static int launch_streams(const char *name);
+static void launch_thread(const char *name, const char *path, switch_xml_t directory);
+
+static const char *global_cf = "local_stream.conf";
 
 struct local_stream_source;
 
@@ -80,8 +85,11 @@ struct local_stream_source {
 	switch_memory_pool_t *pool;
 	int shuffle;
 	switch_thread_rwlock_t *rwlock;
+	int hup;
 	int ready;
 	int stopped;
+	int part_reload;
+	int full_reload;
 	int chime_freq;
 	int chime_total;
 	int chime_max;
@@ -160,7 +168,7 @@ static void *SWITCH_THREAD_FUNC read_stream_thread(switch_thread_t *thread, void
 
 		switch_yield(1000000);
 
-		while (RUNNING) {
+		while (RUNNING && !source->stopped) {
 			switch_size_t olen;
 			uint8_t abuf[SWITCH_RECOMMENDED_BUFFER_SIZE] = { 0 };
 
@@ -215,7 +223,7 @@ static void *SWITCH_THREAD_FUNC read_stream_thread(switch_thread_t *thread, void
 				goto done;
 			}
 
-			while (RUNNING) {
+			while (RUNNING && !source->stopped) {
 				int is_open;
 				switch_file_handle_t *use_fh = &fh;
 
@@ -254,6 +262,23 @@ static void *SWITCH_THREAD_FUNC read_stream_thread(switch_thread_t *thread, void
 
 				is_open = switch_test_flag(use_fh, SWITCH_FILE_OPEN);
 
+				if (source->hup) {
+					source->hup = 0;
+					if (is_open) {
+						is_open = 0;
+
+						switch_core_file_close(use_fh);
+						if (use_fh == &source->chime_fh) {
+							source->chime_counter = source->rate * source->chime_freq;
+							use_fh = &fh;
+							goto retry;
+							switch_core_file_close(&fh);
+						}
+					}
+				}
+
+
+
 				if (is_open) {
 					if (switch_core_file_read(use_fh, abuf, &olen) != SWITCH_STATUS_SUCCESS || !olen) {
 						switch_core_file_close(use_fh);
@@ -286,16 +311,17 @@ static void *SWITCH_THREAD_FUNC read_stream_thread(switch_thread_t *thread, void
 				if (!is_open || used >= source->prebuf || (source->total && used > source->samples * 2)) {
 					used = switch_buffer_read(audio_buffer, dist_buf, source->samples * 2);
 					if (source->total) {
-
+						uint32_t bused = 0;
 						switch_mutex_lock(source->mutex);
 						for (cp = source->context_list; cp && RUNNING; cp = cp->next) {
 							if (switch_test_flag(cp->handle, SWITCH_FILE_CALLBACK)) {
 								continue;
 							}
 							switch_mutex_lock(cp->audio_mutex);
-							if (switch_buffer_inuse(cp->audio_buffer) > source->samples * 768) {
-								switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Leaking stream handle! [%s() %s:%d]\n", cp->func, cp->file,
-												  cp->line);
+							bused = switch_buffer_inuse(cp->audio_buffer);
+							if (bused > source->samples * 768) {
+								switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG1, "Flushing Stream Handle Buffer [%s() %s:%d] size: %u samples: %ld\n", 
+												  cp->func, cp->file, cp->line, bused, (long)source->samples);
 								switch_buffer_zero(cp->audio_buffer);
 							} else {
 								switch_buffer_write(cp->audio_buffer, dist_buf, used);
@@ -315,6 +341,61 @@ static void *SWITCH_THREAD_FUNC read_stream_thread(switch_thread_t *thread, void
 
 		switch_dir_close(source->dir_handle);
 		source->dir_handle = NULL;
+
+		if (source->full_reload) {
+			if (source->rwlock && switch_thread_rwlock_trywrlock(source->rwlock) != SWITCH_STATUS_SUCCESS) {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Cannot stop local_stream://%s because it is in use.\n",source->name);
+				if (source->part_reload) {
+					switch_xml_t cfg, xml, directory, param;
+					if (!(xml = switch_xml_open_cfg(global_cf, &cfg, NULL))) {
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", global_cf);
+					}
+					if ((directory = switch_xml_find_child(cfg, "directory", "name", source->name))) {
+						for (param = switch_xml_child(directory, "param"); param; param = param->next) {
+							char *var = (char *) switch_xml_attr_soft(param, "name");
+							char *val = (char *) switch_xml_attr_soft(param, "value");
+							if (!strcasecmp(var, "shuffle")) {
+								source->shuffle = switch_true(val);
+							} else if (!strcasecmp(var, "chime-freq")) {
+								int tmp = atoi(val);
+								if (tmp > 1) {
+									source->chime_freq = tmp;
+								}
+							} else if (!strcasecmp(var, "chime-max")) {
+								int tmp = atoi(val);
+								if (tmp > 1) {
+									source->chime_max = tmp;
+								}
+							} else if (!strcasecmp(var, "chime-list")) {
+								char *list_dup = switch_core_strdup(source->pool, val);
+								source->chime_total =
+									switch_separate_string(list_dup, ',', source->chime_list, (sizeof(source->chime_list) / sizeof(source->chime_list[0])));
+							} else if (!strcasecmp(var, "interval")) {
+								int tmp = atoi(val);
+								if (SWITCH_ACCEPTABLE_INTERVAL(tmp)) {
+									source->interval = tmp;
+								} else {
+									switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+													  "Interval must be multiple of 10 and less than %d, Using default of 20\n", SWITCH_MAX_INTERVAL);
+								}
+							}
+							if (source->chime_max) {
+								source->chime_max *= source->rate;
+							}
+							if (source->chime_total) {
+								source->chime_counter = source->rate * source->chime_freq;
+							}
+						}
+					}
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "local_stream://%s partially reloaded.\n",source->name);
+					source->part_reload = 0;
+				}
+			} else {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "local_stream://%s fully reloaded.\n",source->name);
+				launch_streams(source->name);
+				goto done;
+			}
+		}
 	}
 
   done:
@@ -493,120 +574,176 @@ static switch_status_t local_stream_file_read(switch_file_handle_t *handle, void
 
 static char *supported_formats[SWITCH_MAX_CODECS] = { 0 };
 
-static void launch_threads(void)
+static void launch_thread(const char *name, const char *path, switch_xml_t directory)
 {
-	char *cf = "local_stream.conf";
-	switch_xml_t cfg, xml, directory, param;
+	local_stream_source_t *source = NULL;
 	switch_memory_pool_t *pool;
-	local_stream_source_t *source;
+	switch_xml_t param;
 	switch_thread_t *thread;
 	switch_threadattr_t *thd_attr = NULL;
 
-	if (!(xml = switch_xml_open_cfg(cf, &cfg, NULL))) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", cf);
-		return;
+	if (switch_core_new_memory_pool(&pool) != SWITCH_STATUS_SUCCESS) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "OH OH no pool\n");
+		abort();
 	}
+	source = switch_core_alloc(pool, sizeof(*source));
+	assert(source != NULL);
+	source->pool = pool;
 
-	for (directory = switch_xml_child(cfg, "directory"); directory; directory = directory->next) {
-		char *path = (char *) switch_xml_attr(directory, "path");
-		char *name = (char *) switch_xml_attr(directory, "name");
+	source->name = switch_core_strdup(source->pool, name);
+	source->location = switch_core_strdup(source->pool, path);
+	source->rate = 8000;
+	source->interval = 20;
+	source->channels = 1;
+	source->timer_name = "soft";
+	source->prebuf = DEFAULT_PREBUFFER_SIZE;
+	source->stopped = 0;
+	source->hup = 0;
+	source->chime_freq = 30;
+	for (param = switch_xml_child(directory, "param"); param; param = param->next) {
+		char *var = (char *) switch_xml_attr_soft(param, "name");
+		char *val = (char *) switch_xml_attr_soft(param, "value");
 
-		if (!(name && path)) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Invalid config!\n");
-			continue;
-		}
-
-		if (switch_core_new_memory_pool(&pool) != SWITCH_STATUS_SUCCESS) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "OH OH no pool\n");
-			abort();
-		}
-
-		source = switch_core_alloc(pool, sizeof(*source));
-		assert(source != NULL);
-		source->pool = pool;
-
-		source->name = switch_core_strdup(source->pool, name);
-		source->location = switch_core_strdup(source->pool, path);
-		source->rate = 8000;
-		source->interval = 20;
-		source->channels = 1;
-		source->timer_name = "soft";
-		source->prebuf = DEFAULT_PREBUFFER_SIZE;
-		source->stopped = 0;
-		source->chime_freq = 30;
-
-		for (param = switch_xml_child(directory, "param"); param; param = param->next) {
-			char *var = (char *) switch_xml_attr_soft(param, "name");
-			char *val = (char *) switch_xml_attr_soft(param, "value");
-
-			if (!strcasecmp(var, "rate")) {
-				int tmp = atoi(val);
-				if (tmp == 8000 || tmp == 12000 || tmp == 16000 || tmp == 24000 || tmp == 32000 || tmp == 48000) {
-					source->rate = tmp;
-				}
-			} else if (!strcasecmp(var, "shuffle")) {
-				source->shuffle = switch_true(val);
-			} else if (!strcasecmp(var, "prebuf")) {
-				int tmp = atoi(val);
-				if (tmp > 0) {
-					source->prebuf = (uint32_t) tmp;
-				}
-			} else if (!strcasecmp(var, "channels")) {
-				int tmp = atoi(val);
-				if (tmp == 1 || tmp == 2) {
-					source->channels = (uint8_t) tmp;
-				}
-			} else if (!strcasecmp(var, "chime-freq")) {
-				int tmp = atoi(val);
-				if (tmp > 1) {
-					source->chime_freq = tmp;
-				}
-			} else if (!strcasecmp(var, "chime-max")) {
-				int tmp = atoi(val);
-				if (tmp > 1) {
-					source->chime_max = tmp;
-				}
-			} else if (!strcasecmp(var, "chime-list")) {
-				char *list_dup = switch_core_strdup(source->pool, val);
-				source->chime_total =
-					switch_separate_string(list_dup, ',', source->chime_list, (sizeof(source->chime_list) / sizeof(source->chime_list[0])));
-			} else if (!strcasecmp(var, "interval")) {
-				int tmp = atoi(val);
-				if (SWITCH_ACCEPTABLE_INTERVAL(tmp)) {
-					source->interval = tmp;
-				} else {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
-									  "Interval must be multiple of 10 and less than %d, Using default of 20\n", SWITCH_MAX_INTERVAL);
-				}
-			} else if (!strcasecmp(var, "timer-name")) {
-				source->timer_name = switch_core_strdup(source->pool, val);
+		if (!strcasecmp(var, "rate")) {
+			int tmp = atoi(val);
+			if (tmp == 8000 || tmp == 12000 || tmp == 16000 || tmp == 24000 || tmp == 32000 || tmp == 48000) {
+				source->rate = tmp;
 			}
+		} else if (!strcasecmp(var, "shuffle")) {
+			source->shuffle = switch_true(val);
+		} else if (!strcasecmp(var, "prebuf")) {
+			int tmp = atoi(val);
+			if (tmp > 0) {
+				source->prebuf = (uint32_t) tmp;
+			}
+		} else if (!strcasecmp(var, "channels")) {
+			int tmp = atoi(val);
+			if (tmp == 1 || tmp == 2) {
+				source->channels = (uint8_t) tmp;
+			}
+		} else if (!strcasecmp(var, "chime-freq")) {
+			int tmp = atoi(val);
+			if (tmp > 1) {
+				source->chime_freq = tmp;
+			}
+		} else if (!strcasecmp(var, "chime-max")) {
+			int tmp = atoi(val);
+			if (tmp > 1) {
+				source->chime_max = tmp;
+			}
+		} else if (!strcasecmp(var, "chime-list")) {
+			char *list_dup = switch_core_strdup(source->pool, val);
+			source->chime_total =
+				switch_separate_string(list_dup, ',', source->chime_list, (sizeof(source->chime_list) / sizeof(source->chime_list[0])));
+		} else if (!strcasecmp(var, "interval")) {
+			int tmp = atoi(val);
+			if (SWITCH_ACCEPTABLE_INTERVAL(tmp)) {
+				source->interval = tmp;
+			} else {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+								  "Interval must be multiple of 10 and less than %d, Using default of 20\n", SWITCH_MAX_INTERVAL);
+			}
+		} else if (!strcasecmp(var, "timer-name")) {
+			source->timer_name = switch_core_strdup(source->pool, val);
 		}
-
-		if (source->chime_max) {
-			source->chime_max *= source->rate;
-		}
-
-		if (source->chime_total) {
-			source->chime_counter = source->rate * source->chime_freq;
-		}
-
-		source->samples = switch_samples_per_packet(source->rate, source->interval);
-
-		switch_mutex_init(&source->mutex, SWITCH_MUTEX_NESTED, source->pool);
-
-		switch_threadattr_create(&thd_attr, source->pool);
-		switch_threadattr_detach_set(thd_attr, 1);
-		switch_threadattr_stacksize_set(thd_attr, SWITCH_THREAD_STACKSIZE);
-		switch_thread_create(&thread, thd_attr, read_stream_thread, source, source->pool);
 	}
 
+	if (source->chime_max) {
+		source->chime_max *= source->rate;
+	}
+
+	if (source->chime_total) {
+		source->chime_counter = source->rate * source->chime_freq;
+	}
+
+	source->samples = switch_samples_per_packet(source->rate, source->interval);
+	switch_mutex_init(&source->mutex, SWITCH_MUTEX_NESTED, source->pool);
+	switch_threadattr_create(&thd_attr, source->pool);
+	switch_threadattr_detach_set(thd_attr, 1);
+	switch_threadattr_stacksize_set(thd_attr, SWITCH_THREAD_STACKSIZE);
+	switch_thread_create(&thread, thd_attr, read_stream_thread, source, source->pool);
+}
+
+static int launch_streams(const char *name)
+{
+	switch_xml_t cfg, xml, directory;
+	int x = 0;
+
+	if (!(xml = switch_xml_open_cfg(global_cf, &cfg, NULL))) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", global_cf);
+		return 0;
+	}
+
+	if (zstr(name)) {
+		for (directory = switch_xml_child(cfg, "directory"); directory; directory = directory->next) {
+			char *name = (char *) switch_xml_attr(directory, "name");
+			char *path = (char *) switch_xml_attr(directory, "path");
+			launch_thread(name, path, directory);
+			x++;
+		}
+	} else if ((directory = switch_xml_find_child(cfg, "directory", "name", name))) {
+		char *path = (char *) switch_xml_attr(directory, "path");
+		launch_thread(name, path, directory);
+		x++;
+	}
 	switch_xml_free(xml);
+
+	return x;
 }
 
 static void event_handler(switch_event_t *event)
 {
 	RUNNING = 0;
+}
+
+#define RELOAD_LOCAL_STREAM_SYNTAX "<local_stream_name>"
+SWITCH_STANDARD_API(reload_local_stream_function)
+{
+	local_stream_source_t *source = NULL;
+	char *mycmd = NULL, *argv[1] = { 0 };
+	char *local_stream_name = NULL;
+	int argc = 0;
+
+
+	if (zstr(cmd)) {
+		goto usage;
+	}
+
+	if (!(mycmd = strdup(cmd))) {
+		goto usage;
+	}
+
+	if ((argc = switch_separate_string(mycmd, ' ', argv, (sizeof(argv) / sizeof(argv[0])))) < 1) {
+		goto usage;
+	}
+
+	local_stream_name = argv[0];
+	if (zstr(local_stream_name)) {
+		goto usage;
+	}
+
+	switch_mutex_lock(globals.mutex);
+	source = switch_core_hash_find(globals.source_hash, local_stream_name);
+	switch_mutex_unlock(globals.mutex);
+
+	if (!source) {
+		stream->write_function(stream, "-ERR Cannot locate local_stream %s!\n", local_stream_name);
+		goto done;
+	}
+
+	source->full_reload = 1;
+	source->part_reload = 1;
+	stream->write_function(stream, "+OK");
+	goto done;
+
+  usage:
+	stream->write_function(stream, "-USAGE: %s\n", RELOAD_LOCAL_STREAM_SYNTAX);
+	switch_safe_free(mycmd);
+
+  done:
+
+	switch_safe_free(mycmd);
+	return SWITCH_STATUS_SUCCESS;
 }
 
 #define STOP_LOCAL_STREAM_SYNTAX "<local_stream_name>"
@@ -724,6 +861,7 @@ SWITCH_STANDARD_API(show_local_stream_function)
 				stream->write_function(stream, "  shuffle:  %s\n", (source->shuffle) ? "true" : "false");
 				stream->write_function(stream, "  ready:    %s\n", (source->ready) ? "true" : "false");
 				stream->write_function(stream, "  stopped:  %s\n", (source->stopped) ? "true" : "false");
+				stream->write_function(stream, "  reloading: %s\n", (source->full_reload) ? "true" : "false");
 			}
 		} else {
 			stream->write_function(stream, "-ERR Cannot locate local_stream %s!\n", local_stream_name);
@@ -744,23 +882,14 @@ SWITCH_STANDARD_API(show_local_stream_function)
 	return SWITCH_STATUS_SUCCESS;
 }
 
-#define START_LOCAL_STREAM_SYNTAX "<local_stream_name> [<path>] [<rate>] [<shuffle>] [<prebuf>] [<channels>] [<interval>] [<timer_name>]"
+#define START_LOCAL_STREAM_SYNTAX "<local_stream_name>"
 SWITCH_STANDARD_API(start_local_stream_function)
 {
 	local_stream_source_t *source = NULL;
-	switch_memory_pool_t *pool;
-	switch_thread_t *thread;
-	switch_threadattr_t *thd_attr = NULL;
 	char *mycmd = NULL, *argv[8] = { 0 };
-	char *local_stream_name = NULL, *path = NULL, *timer_name = NULL, *chime_list = NULL, *list_dup = NULL;
-	uint32_t prebuf = 1;
-	int rate = 8000, shuffle = 1, interval = 20, chime_freq = 30;
-	uint8_t channels = 1;
-	uint32_t chime_max = 0;
+	char *local_stream_name = NULL;
 	int argc = 0;
-	char *cf = "local_stream.conf";
-	switch_xml_t cfg, xml, directory, param;
-	int tmp;
+	int ok = 0;
 
 	if (zstr(cmd)) {
 		goto usage;
@@ -776,159 +905,61 @@ SWITCH_STANDARD_API(start_local_stream_function)
 
 	local_stream_name = argv[0];
 
-	if (argv[1]) {
-		path = strdup(argv[1]);
-	}
-
-	if (argv[2]) {
-		tmp = atoi(argv[2]);
-		if (tmp == 8000 || tmp == 16000 || tmp == 32000) {
-			rate = tmp;
-		}
-	}
-
-	shuffle = argv[3] ? switch_true(argv[3]) : 1;
-	prebuf = argv[4] ? atoi(argv[4]) : DEFAULT_PREBUFFER_SIZE;
-
-	if (argv[5]) {
-		tmp = atoi(argv[5]);
-		if (tmp == 1 || tmp == 2) {
-			channels = (uint8_t) tmp;
-		}
-	}
-
-	interval = argv[6] ? atoi(argv[6]) : 20;
-
-	if (!SWITCH_ACCEPTABLE_INTERVAL(interval)) {
-		interval = 20;
-	}
-
-	if (!path) {
-		if (!(xml = switch_xml_open_cfg(cf, &cfg, NULL))) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", cf);
-			stream->write_function(stream, "-ERR unable to open file %s!\n", cf);
-			goto done;
-		}
-
-		for (directory = switch_xml_child(cfg, "directory"); directory; directory = directory->next) {
-			char *name = (char *) switch_xml_attr(directory, "name");
-			if (!name || !local_stream_name || strcasecmp(name, local_stream_name)) {
-				continue;
-			} else {
-				path = (char *) switch_xml_attr(directory, "path");
-				if (!(name && path)) {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Invalid config!\n");
-					continue;
-				}
-
-				for (param = switch_xml_child(directory, "param"); param; param = param->next) {
-					char *var = (char *) switch_xml_attr_soft(param, "name");
-					char *val = (char *) switch_xml_attr_soft(param, "value");
-
-					if (!strcasecmp(var, "rate")) {
-						tmp = atoi(val);
-						if (tmp == 8000 || tmp == 16000 || tmp == 32000) {
-							rate = tmp;
-						}
-					} else if (!strcasecmp(var, "shuffle")) {
-						shuffle = switch_true(val);
-					} else if (!strcasecmp(var, "prebuf")) {
-						tmp = atoi(val);
-						if (tmp > 0) {
-							prebuf = (uint32_t) tmp;
-						}
-					} else if (!strcasecmp(var, "channels")) {
-						tmp = atoi(val);
-						if (tmp == 1 || tmp == 2) {
-							channels = (uint8_t) tmp;
-						}
-					} else if (!strcasecmp(var, "interval")) {
-						tmp = atoi(val);
-						if (SWITCH_ACCEPTABLE_INTERVAL(tmp)) {
-							interval = tmp;
-						} else {
-							switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
-											  "Interval must be multiple of 10 and less than %d, Using default of 20\n", SWITCH_MAX_INTERVAL);
-						}
-					} else if (!strcasecmp(var, "timer-name")) {
-						timer_name = strdup(val);
-					} else if (!strcasecmp(var, "chime-freq")) {
-						tmp = atoi(val);
-						if (tmp > 1) {
-							chime_freq = (uint32_t) tmp;
-						}
-					} else if (!strcasecmp(var, "chime-max")) {
-						tmp = atoi(val);
-						if (tmp > 1) {
-							chime_max = (uint32_t) tmp;
-						}
-					} else if (!strcasecmp(var, "chime-list")) {
-		                                chime_list = val;
-					}
-				}
-				break;
-			}
-
-		}
-
-		if (path) {
-			path = strdup(path);
-		}
-		switch_xml_free(xml);
-	}
-
-	if (zstr(local_stream_name) || zstr(path)) {
-		goto usage;
-	}
-
 	switch_mutex_lock(globals.mutex);
 	source = switch_core_hash_find(globals.source_hash, local_stream_name);
 	switch_mutex_unlock(globals.mutex);
 	if (source) {
 		source->stopped = 0;
-		stream->write_function(stream, "+OK stream: %s[%s] %s", source->name, source->location, source->shuffle ? "shuffle" : "no shuffle");
+		stream->write_function(stream, "+OK stream: %s", source->name);
 		goto done;
 	}
 
-	if (switch_core_new_memory_pool(&pool) != SWITCH_STATUS_SUCCESS) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "OH OH no pool for new local_stream\n");
-		stream->write_function(stream, "-ERR unable to allocate memory for local_stream %s!\n", local_stream_name);
+	if ((ok = launch_streams(local_stream_name))) {
+		stream->write_function(stream, "+OK stream: %s", local_stream_name);
 		goto done;
 	}
 
-	source = switch_core_alloc(pool, sizeof(*source));
-	assert(source != NULL);
-	source->pool = pool;
+  usage:
+	stream->write_function(stream, "-USAGE: %s\n", START_LOCAL_STREAM_SYNTAX);
 
-	source->name = switch_core_strdup(source->pool, local_stream_name);
-	source->location = switch_core_strdup(source->pool, path);
-	source->rate = rate;
-	source->interval = interval;
-	source->channels = channels;
-	source->timer_name = switch_core_strdup(source->pool, timer_name ? timer_name : (argv[7] ? argv[7] : "soft"));
-	list_dup = switch_core_strdup(source->pool, chime_list);
-	source->chime_total = switch_separate_string(list_dup, ',', source->chime_list, (sizeof(source->chime_list) / sizeof(source->chime_list[0])));
-	if (source->chime_total) {
-		source->chime_freq = chime_freq;
+  done:
 
-		if (chime_max) {
-			source->chime_max = chime_max * source->rate;
-		}
+	switch_safe_free(mycmd);
+	return SWITCH_STATUS_SUCCESS;
+}
+
+#define HUP_LOCAL_STREAM_SYNTAX "<local_stream_name>"
+SWITCH_STANDARD_API(hup_local_stream_function)
+{
+	local_stream_source_t *source = NULL;
+	char *mycmd = NULL, *argv[8] = { 0 };
+	char *local_stream_name = NULL;
+	int argc = 0;
+
+	if (zstr(cmd)) {
+		goto usage;
 	}
-	source->chime_counter = source->rate * source->chime_freq;
-	source->prebuf = prebuf;
-	source->stopped = 0;
-	source->shuffle = shuffle;
-	source->samples = switch_samples_per_packet(source->rate, source->interval);
 
-	switch_mutex_init(&source->mutex, SWITCH_MUTEX_NESTED, source->pool);
+	if (!(mycmd = strdup(cmd))) {
+		goto usage;
+	}
 
-	switch_threadattr_create(&thd_attr, source->pool);
-	switch_threadattr_detach_set(thd_attr, 1);
-	switch_threadattr_stacksize_set(thd_attr, SWITCH_THREAD_STACKSIZE);
-	switch_thread_create(&thread, thd_attr, read_stream_thread, source, source->pool);
+	if ((argc = switch_separate_string(mycmd, ' ', argv, (sizeof(argv) / sizeof(argv[0])))) < 1) {
+		goto usage;
+	}
 
-	stream->write_function(stream, "+OK stream: %s[%s] %s", source->name, source->location, source->shuffle ? "shuffle" : "no shuffle");
+	local_stream_name = argv[0];
+
+	switch_mutex_lock(globals.mutex);
+	source = switch_core_hash_find(globals.source_hash, local_stream_name);
+	switch_mutex_unlock(globals.mutex);
+
+	if (source) {
+		source->hup = 1;
+		stream->write_function(stream, "+OK hup stream: %s", source->name);
+		goto done;
+	}
+
 	goto done;
 
   usage:
@@ -936,8 +967,6 @@ SWITCH_STANDARD_API(start_local_stream_function)
 
   done:
 
-	switch_safe_free(path);
-	switch_safe_free(timer_name);
 	switch_safe_free(mycmd);
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -946,8 +975,17 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_local_stream_load)
 {
 	switch_api_interface_t *commands_api_interface;
 	switch_file_interface_t *file_interface;
+
 	supported_formats[0] = "local_stream";
 
+
+	memset(&globals, 0, sizeof(globals));
+	switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, pool);
+	switch_core_hash_init(&globals.source_hash, pool);
+	if (!launch_streams(NULL)) {
+		return SWITCH_STATUS_GENERR;
+	}
+	
 	*module_interface = switch_loadable_module_create_module_interface(pool, modname);
 	file_interface = switch_loadable_module_create_interface(*module_interface, SWITCH_FILE_INTERFACE);
 	file_interface->interface_name = modname;
@@ -960,11 +998,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_local_stream_load)
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Couldn't bind event handler!\n");
 	}
 
-	memset(&globals, 0, sizeof(globals));
-	switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, pool);
-	switch_core_hash_init(&globals.source_hash, pool);
-	launch_threads();
 
+
+	SWITCH_ADD_API(commands_api_interface, "hup_local_stream", "Skip to next file in local_stream", hup_local_stream_function, RELOAD_LOCAL_STREAM_SYNTAX);
+	SWITCH_ADD_API(commands_api_interface, "reload_local_stream", "Reloads a local_stream", reload_local_stream_function, RELOAD_LOCAL_STREAM_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "stop_local_stream", "Stops and unloads a local_stream", stop_local_stream_function, STOP_LOCAL_STREAM_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "start_local_stream", "Starts a new local_stream", start_local_stream_function, START_LOCAL_STREAM_SYNTAX);
 	SWITCH_ADD_API(commands_api_interface, "show_local_stream", "Shows a local stream", show_local_stream_function, SHOW_LOCAL_STREAM_SYNTAX);
@@ -994,5 +1031,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_local_stream_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

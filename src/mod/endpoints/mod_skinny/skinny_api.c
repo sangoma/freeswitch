@@ -231,6 +231,11 @@ static switch_status_t skinny_api_list_settings(const char *line, const char *cu
 	switch_console_push_match(&my_matches, "odbc-dsn");
 	switch_console_push_match(&my_matches, "debug");
 	switch_console_push_match(&my_matches, "auto-restart");
+	switch_console_push_match(&my_matches, "ext-voicemail");
+	switch_console_push_match(&my_matches, "ext-redial");
+	switch_console_push_match(&my_matches, "ext-meetme");
+	switch_console_push_match(&my_matches, "ext-pickup");
+	switch_console_push_match(&my_matches, "ext-cfwdall");
 
 	if (my_matches) {
 		*matches = my_matches;
@@ -259,6 +264,40 @@ static switch_status_t skinny_api_cmd_status_profile_device(const char *profile_
 	skinny_profile_t *profile;
 	if ((profile = skinny_find_profile(profile_name))) {
 		dump_device(profile, device_name, stream);
+	} else {
+		stream->write_function(stream, "Profile not found!\n");
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+static switch_status_t skinny_api_cmd_profile_device_kill(const char *profile_name, const char *device_name, switch_stream_handle_t *stream)
+{
+	skinny_profile_t *profile;
+
+	if ((profile = skinny_find_profile(profile_name))) {
+		listener_t *listener = NULL;
+		skinny_profile_find_listener_by_device_name(profile, device_name, &listener);
+		if(listener) {
+			kill_listener(listener, NULL);
+			stream->write_function(stream, "+OK\n");
+		} else {
+			stream->write_function(stream, "Listener not found!\n");
+		}
+	} else {
+		stream->write_function(stream, "Profile not found!\n");
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+static switch_status_t skinny_api_cmd_profile_kill_all(const char *profile_name, switch_stream_handle_t *stream)
+{
+	skinny_profile_t *profile;
+
+	if ((profile = skinny_find_profile(profile_name))) {
+		profile_walk_listeners(profile, kill_listener, NULL);
+		stream->write_function(stream, "+OK\n");
 	} else {
 		stream->write_function(stream, "Profile not found!\n");
 	}
@@ -335,6 +374,50 @@ static switch_status_t skinny_api_cmd_profile_device_send_call_state_message(con
 		skinny_profile_find_listener_by_device_name(profile, device_name, &listener);
 		if(listener) {
 			send_call_state(listener, skinny_str2call_state(call_state), atoi(line_instance), atoi(call_id));
+			stream->write_function(stream, "+OK\n");
+		} else {
+			stream->write_function(stream, "Listener not found!\n");
+		}
+	} else {
+		stream->write_function(stream, "Profile not found!\n");
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+static switch_status_t skinny_api_cmd_profile_device_send_forward_stat_message(const char *profile_name, const char *device_name, const char *number, switch_stream_handle_t *stream)
+{
+	skinny_profile_t *profile;
+
+	if ((profile = skinny_find_profile(profile_name))) {
+		listener_t *listener = NULL;
+		skinny_profile_find_listener_by_device_name(profile, device_name, &listener);
+		if(listener) {
+
+			send_forward_stat(listener, number); 
+
+			stream->write_function(stream, "+OK\n");
+		} else {
+			stream->write_function(stream, "Listener not found!\n");
+		}
+	} else {
+		stream->write_function(stream, "Profile not found!\n");
+	}
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
+static switch_status_t skinny_api_cmd_profile_device_send_display_prompt_status_message(const char *profile_name, const char *device_name, const char *display, switch_stream_handle_t *stream)
+{
+	skinny_profile_t *profile;
+
+	if ((profile = skinny_find_profile(profile_name))) {
+		listener_t *listener = NULL;
+		skinny_profile_find_listener_by_device_name(profile, device_name, &listener);
+		if(listener) {
+
+			send_display_prompt_status(listener, 0, display, 0, 0); 
+
 			stream->write_function(stream, "+OK\n");
 		} else {
 			stream->write_function(stream, "Listener not found!\n");
@@ -459,6 +542,8 @@ SWITCH_STANDARD_API(skinny_function)
 		"skinny profile <profile_name> device <device_name> send SetLampMessage <stimulus> <instance> <lamp_mode>\n"
 		"skinny profile <profile_name> device <device_name> send SetSpeakerModeMessage <speaker_mode>\n"
 		"skinny profile <profile_name> device <device_name> send CallStateMessage <call_state> <line_instance> <call_id>\n"
+		"skinny profile <profile_name> device <device_name> send ForwardStatMessage <number>\n"
+		"skinny profile <profile_name> device <device_name> send DisplayPromptStatus <message>\n"
 		"skinny profile <profile_name> device <device_name> send <UserToDeviceDataMessage|UserToDeviceDataVersion1Message> [ <param>=<value>;... ] <data>\n"
 		"skinny profile <profile_name> set <name> <value>\n"
 		"--------------------------------------------------------------------------------\n";
@@ -486,9 +571,15 @@ SWITCH_STANDARD_API(skinny_function)
 	} else if (argc == 3 && !strcasecmp(argv[0], "status") && !strcasecmp(argv[1], "profile")) {
 		/* skinny status profile <profile_name> */
 		status = skinny_api_cmd_status_profile(argv[2], stream);
+	} else if (argc == 3 && !strcasecmp(argv[0], "profile") && !strcasecmp(argv[2], "kill_all")) {
+		/* skinny profile <profile_name> kill_all */
+		status = skinny_api_cmd_profile_kill_all(argv[1],stream);
 	} else if (argc == 5 && !strcasecmp(argv[0], "status") && !strcasecmp(argv[1], "profile") && !strcasecmp(argv[3], "device")) {
 		/* skinny status profile <profile_name> device <device_name> */
 		status = skinny_api_cmd_status_profile_device(argv[2], argv[4], stream);
+	} else if (argc == 5 && !strcasecmp(argv[0], "profile") && !strcasecmp(argv[2], "device") && !strcasecmp(argv[4], "kill")) {
+		/* skinny profile <profile_name> device <device_name> kill */
+		status = skinny_api_cmd_profile_device_kill(argv[1],argv[3],stream);
 	} else if (argc >= 6 && !strcasecmp(argv[0], "profile") && !strcasecmp(argv[2], "device") && !strcasecmp(argv[4], "send")) {
 		/* skinny profile <profile_name> device <device_name> send ... */
 		switch(skinny_str2message_type(argv[5])) {
@@ -514,6 +605,21 @@ SWITCH_STANDARD_API(skinny_function)
 				if (argc == 9) {
 					/* CallStateMessage <call_state> <line_instance> <call_id> */
 					status = skinny_api_cmd_profile_device_send_call_state_message(argv[1], argv[3], argv[6], argv[7], argv[8], stream);
+				}
+				break;
+			case FORWARD_STAT_MESSAGE:
+				if (argc == 7) {
+					/* ForwardStatMessage <number> */
+					status = skinny_api_cmd_profile_device_send_forward_stat_message(argv[1], argv[3], argv[6], stream);
+				} else if (argc == 6) {
+					/* ForwardStatMessage */
+					status = skinny_api_cmd_profile_device_send_forward_stat_message(argv[1], argv[3], NULL, stream);
+				}
+				break;
+			case DISPLAY_PROMPT_STATUS_MESSAGE:
+				if (argc == 7) {
+					/* DisplayPromptStatus <display> */
+					status = skinny_api_cmd_profile_device_send_display_prompt_status_message(argv[1], argv[3], argv[6], stream);
 				}
 				break;
 			case RESET_MESSAGE:
@@ -557,11 +663,17 @@ switch_status_t skinny_api_register(switch_loadable_module_interface_t **module_
 	switch_console_set_complete("add skinny status profile ::skinny::list_profiles");
 	switch_console_set_complete("add skinny status profile ::skinny::list_profiles device ::skinny::list_devices");
 
+	switch_console_set_complete("add skinny profile ::skinny::list_profiles kill_all");
+
+	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices kill");
+
 	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send ResetMessage ::skinny::list_reset_types");
 	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send SetRingerMessage ::skinny::list_ring_types ::skinny::list_ring_modes");
 	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send SetLampMessage ::skinny::list_stimuli ::skinny::list_stimulus_instances ::skinny::list_stimulus_modes");
 	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send SetSpeakerModeMessage ::skinny::list_speaker_modes");
 	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send CallStateMessage ::skinny::list_call_states ::skinny::list_line_instances ::skinny::list_call_ids");
+	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send ForwardStatMessage");
+	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send DisplayPromptStatusMessage");
 	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send UserToDeviceDataMessage");
 	switch_console_set_complete("add skinny profile ::skinny::list_profiles device ::skinny::list_devices send UserToDeviceDataVersion1Message");
 	switch_console_set_complete("add skinny profile ::skinny::list_profiles set ::skinny::list_settings");
@@ -597,6 +709,6 @@ switch_status_t skinny_api_unregister()
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */
 

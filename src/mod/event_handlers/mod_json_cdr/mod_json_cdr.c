@@ -244,12 +244,17 @@ static switch_status_t my_on_reporting(switch_core_session_t *session)
 #else
 			if ((fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH)) > -1) {
 #endif
-				int wrote;
-				wrote = write(fd, json_text, (unsigned) strlen(json_text));
-				close(fd);
-				fd = -1;
-				if(wrote < 0) {
+				switch_size_t json_len = strlen(json_text);
+				switch_ssize_t wrote = 0, x;
+				do { x = write(fd, json_text, json_len);
+				} while (!(x<0) && json_len > (wrote += x));
+				if (!(x<0)) do { x = write(fd, "\n", 1);
+					} while (!(x<0) && x<1);
+				close(fd); fd = -1;
+				if (x < 0) {
 					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error writing [%s]\n",path);
+					if (0 > unlink(path))
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error unlinking [%s]\n",path);
 				}
 			} else {
 				char ebuf[512] = { 0 };
@@ -603,14 +608,9 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_json_cdr_load)
 		}
 	}
 
-	if (globals.retries < 0) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Retries is negative, setting to 0\n");
-		globals.retries = 0;
-	}
-
-	if (globals.retries && globals.delay <= 0) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Retries set but delay 0 setting to 5000ms\n");
-		globals.delay = 5000;
+	if (globals.retries && !globals.delay) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Retries set but delay 0 setting to 5 seconds\n");
+		globals.delay = 5;
 	}
 
 	globals.retries++;
@@ -649,5 +649,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_json_cdr_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

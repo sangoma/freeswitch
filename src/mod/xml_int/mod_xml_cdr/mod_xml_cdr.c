@@ -127,6 +127,7 @@ static switch_status_t set_xml_cdr_log_dirs()
 			if ((path = switch_safe_strdup(globals.base_log_dir))) {
 				switch_thread_rwlock_wrlock(globals.log_path_lock);
 				switch_safe_free(globals.log_dir);
+				switch_dir_make_recursive(path, SWITCH_DEFAULT_DIR_PERMS, globals.pool);
 				globals.log_dir = path;
 				switch_thread_rwlock_unlock(globals.log_path_lock);
 			} else {
@@ -165,6 +166,7 @@ static switch_status_t set_xml_cdr_log_dirs()
 			if ((path = switch_safe_strdup(globals.base_err_log_dir))) {
 				switch_thread_rwlock_wrlock(globals.log_path_lock);
 				switch_safe_free(globals.err_log_dir);
+				switch_dir_make_recursive(path, SWITCH_DEFAULT_DIR_PERMS, globals.pool);
 				globals.err_log_dir = path;
 				switch_thread_rwlock_unlock(globals.log_path_lock);
 			} else {
@@ -479,7 +481,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xml_cdr_load)
 	/* parse the config */
 	if (!(xml = switch_xml_open_cfg(cf, &cfg, NULL))) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", cf);
-		return SWITCH_STATUS_TERM;
+		return SWITCH_STATUS_FALSE;
 	}
 
 	if ((settings = switch_xml_child(cfg, "settings"))) {
@@ -627,5 +629,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xml_cdr_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

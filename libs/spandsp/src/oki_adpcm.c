@@ -39,6 +39,7 @@
 #include <string.h>
 
 #include "spandsp/telephony.h"
+#include "spandsp/alloc.h"
 #include "spandsp/oki_adpcm.h"
 #include "spandsp/private/oki_adpcm.h"
 
@@ -159,7 +160,7 @@ static int16_t decode(oki_adpcm_state_t *s, uint8_t adpcm)
      *
      * x = adpcm & 0x07;
      * e = (step_size[s->step_index]*(x + x + 1)) >> 3;
-     * 
+     *
      * Seems an obvious improvement on a modern machine, but remember
      * the truncation errors do not come out the same. It would
      * not, therefore, be an exact match for what this code is doing.
@@ -246,12 +247,12 @@ SPAN_DECLARE(oki_adpcm_state_t *) oki_adpcm_init(oki_adpcm_state_t *s, int bit_r
         return NULL;
     if (s == NULL)
     {
-        if ((s = (oki_adpcm_state_t *) malloc(sizeof(*s))) == NULL)
+        if ((s = (oki_adpcm_state_t *) span_alloc(sizeof(*s))) == NULL)
             return NULL;
     }
     memset(s, 0, sizeof(*s));
     s->bit_rate = bit_rate;
-    
+
     return s;
 }
 /*- End of function --------------------------------------------------------*/
@@ -264,7 +265,7 @@ SPAN_DECLARE(int) oki_adpcm_release(oki_adpcm_state_t *s)
 
 SPAN_DECLARE(int) oki_adpcm_free(oki_adpcm_state_t *s)
 {
-    free(s);
+    span_free(s);
     return 0;
 }
 /*- End of function --------------------------------------------------------*/
@@ -281,7 +282,7 @@ SPAN_DECLARE(int) oki_adpcm_decode(oki_adpcm_state_t *s,
     int samples;
     float z;
 
-#if (_MSC_VER >= 1400) 
+#if (_MSC_VER >= 1400)
     __analysis_assume(s->phase >= 0  &&  s->phase <= 4);
 #endif
     samples = 0;

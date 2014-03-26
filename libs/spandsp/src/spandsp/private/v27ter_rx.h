@@ -130,8 +130,8 @@ struct v27ter_rx_state_s
     int scrambler_pattern_count;
     /*! \brief The current step in the table of BC constellation positions. */
     int training_bc;
-    /*! \brief TRUE if the previous trained values are to be reused. */
-    int old_train;
+    /*! \brief True if the previous trained values are to be reused. */
+    bool old_train;
     /*! \brief The section of the training data we are currently in. */
     int training_stage;
     /*! \brief A count of how far through the current training step we are. */
@@ -158,7 +158,7 @@ struct v27ter_rx_state_s
     /*! \brief The carrier update rate saved for reuse when using short training. */
     int32_t carrier_phase_rate_save;
 
-    /*! \brief A power meter, to measure the HPF'ed signal power in the channel. */    
+    /*! \brief A power meter, to measure the HPF'ed signal power in the channel. */
     power_meter_t power;
     /*! \brief The power meter level at which carrier on is declared. */
     int32_t carrier_on_power;

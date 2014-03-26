@@ -36,6 +36,47 @@
 #include <switch.h>
 
 /*****************************************************************************/
+/* UTILITY MACROS */
+/*****************************************************************************/
+#define empty_null(a) ((a)?(a):NULL)
+#define empty_null2(a,b) ((a)?(a):empty_null(b))
+
+/*****************************************************************************/
+/* LOGGING FUNCTIONS */
+/*****************************************************************************/
+#define skinny_undef_str(x) (zstr(x) ? "_undef_" : x)
+
+#define skinny_log_l(listener, level, _fmt, ...) switch_log_printf(SWITCH_CHANNEL_LOG, level, \
+    "[%s:%d @ %s:%d] " _fmt, skinny_undef_str(listener->device_name), listener->device_instance, skinny_undef_str(listener->remote_ip), \
+    listener->remote_port, __VA_ARGS__)
+
+#define skinny_log_l_msg(listener, level, _fmt) switch_log_printf(SWITCH_CHANNEL_LOG, level, \
+    "[%s:%d @ %s:%d] " _fmt, skinny_undef_str(listener->device_name), listener->device_instance, skinny_undef_str(listener->remote_ip), \
+    listener->remote_port)
+
+#define skinny_log_l_ffl(listener, file, func, line, level, _fmt, ...) switch_log_printf( \
+	SWITCH_CHANNEL_ID_LOG, file, func, line, NULL, level, \
+    "[%s:%d @ %s:%d] " _fmt, skinny_undef_str(listener->device_name), listener->device_instance, skinny_undef_str(listener->remote_ip), \
+    listener->remote_port, __VA_ARGS__)
+
+#define skinny_log_l_ffl_msg(listener, file, func, line, level, _fmt) switch_log_printf( \
+	SWITCH_CHANNEL_ID_LOG, file, func, line, NULL, level, \
+    "[%s:%d @ %s:%d] " _fmt, skinny_undef_str(listener->device_name), listener->device_instance, skinny_undef_str(listener->remote_ip), \
+    listener->remote_port)
+
+#define skinny_log_ls(listener, session, level, _fmt, ...) switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), level, \
+    "[%s:%d @ %s:%d] " _fmt, skinny_undef_str(listener->device_name), listener->device_instance, skinny_undef_str(listener->remote_ip), \
+    listener->remote_port, __VA_ARGS__)
+
+#define skinny_log_ls_msg(listener, session, level, _fmt) switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), level, \
+    "[%s:%d @ %s:%d] " _fmt, skinny_undef_str(listener->device_name), listener->device_instance, skinny_undef_str(listener->remote_ip), \
+    listener->remote_port)
+
+#define skinny_log_s(session, level, _fmt, ...) switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), level, \
+    _fmt, __VA_ARGS__)
+
+
+/*****************************************************************************/
 /* MODULE TYPES */
 /*****************************************************************************/
 #define SKINNY_EVENT_REGISTER "skinny::register"
@@ -84,11 +125,15 @@ struct skinny_profile {
 	int auto_restart;
 	switch_hash_t *soft_key_set_sets_hash;
 	switch_hash_t *device_type_params_hash;
+	/* extensions */
+	char *ext_voicemail;
+	char *ext_redial;
+	char *ext_meetme;
+	char *ext_pickup;
+	char *ext_cfwdall;
 	/* db */
 	char *dbname;
 	char *odbc_dsn;
-	char *odbc_user;
-	char *odbc_pass;
 	switch_odbc_handle_t *master_odbc;
 	switch_mutex_t *sql_mutex;	
 	/* stats */
@@ -151,6 +196,11 @@ struct listener {
 	uint32_t flags;
 	time_t expire_time;
 	struct listener *next;
+	char *ext_voicemail;
+	char *ext_redial;
+	char *ext_meetme;
+	char *ext_pickup;
+	char *ext_cfwdall;
 };
 
 typedef struct listener listener_t;
@@ -242,7 +292,10 @@ switch_bool_t skinny_execute_sql_callback(skinny_profile_t *profile,
 /* LISTENER FUNCTIONS */
 /*****************************************************************************/
 uint8_t listener_is_ready(listener_t *listener);
+switch_status_t kill_listener(listener_t *listener, void *pvt);
 switch_status_t keepalive_listener(listener_t *listener, void *pvt);
+void skinny_clean_listener_from_db(listener_t *listener);
+void skinny_clean_device_from_db(listener_t *listener, char *device_name);
 
 /*****************************************************************************/
 /* CHANNEL FUNCTIONS */
@@ -251,6 +304,7 @@ void skinny_line_perform_set_state(const char *file, const char *func, int line,
 #define  skinny_line_set_state(listener, line_instance, call_id, call_state)  skinny_line_perform_set_state(__FILE__, __SWITCH_FUNC__, __LINE__, listener, line_instance, call_id, call_state)
 
 uint32_t skinny_line_get_state(listener_t *listener, uint32_t line_instance, uint32_t call_id);
+uint32_t skinny_line_count_active(listener_t *listener);
 
 switch_status_t skinny_tech_set_codec(private_t *tech_pvt, int force);
 void tech_init(private_t *tech_pvt, skinny_profile_t *profile, switch_core_session_t *session);
@@ -272,6 +326,12 @@ switch_status_t channel_kill_channel(switch_core_session_t *session, int sig);
 /*****************************************************************************/
 switch_endpoint_interface_t *skinny_get_endpoint_interface();
 
+/*****************************************************************************/
+/* TEXT FUNCTIONS */
+/*****************************************************************************/
+#define skinny_textid2raw(label) (label > 0 ? switch_mprintf("\200%c", label) : switch_mprintf(""))
+char *skinny_expand_textid(const char *str);
+
 #endif /* _MOD_SKINNY_H */
 
 /* For Emacs:
@@ -282,6 +342,6 @@ switch_endpoint_interface_t *skinny_get_endpoint_interface();
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */
 

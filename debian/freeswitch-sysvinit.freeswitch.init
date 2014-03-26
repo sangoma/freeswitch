@@ -4,6 +4,8 @@
 # Provides: freeswitch
 # Required-Start: $network $remote_fs $local_fs
 # Required-Stop: $network $remote_fs $local_fs
+# Should-Start: postgresql mysql memcached mongodb
+# Should-Stop: postgresql mysql memcached mongodb
 # Default-Start: 2 3 4 5
 # Default-Stop: 0 1 6
 # Short-Description: FreeSWITCH Softswitch
@@ -19,6 +21,7 @@ DAEMON=/usr/bin/freeswitch
 DAEMON_ARGS="-u freeswitch -g freeswitch -nc"
 USER=freeswitch
 GROUP=freeswitch
+CONFDIR=/etc/$NAME
 RUNDIR=/var/run/$NAME
 PIDFILE=$RUNDIR/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
@@ -30,6 +33,12 @@ WORKDIR=/var/lib/$NAME
 . /lib/lsb/init-functions
 
 do_start() {
+  if ! [ -f $CONFDIR/freeswitch.xml ]; then
+    echo "$NAME is not configured so not starting.">&2
+    echo "Please review /usr/share/doc/$NAME/README.Debian">&2
+    return 3
+  fi
+
   # Directory in /var/run may disappear on reboot (e.g. when tmpfs used for /var/run).
   mkdir -p $RUNDIR
   chown -R $USER:$GROUP $RUNDIR

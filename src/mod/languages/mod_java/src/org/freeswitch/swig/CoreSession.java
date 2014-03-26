@@ -197,6 +197,10 @@ public class CoreSession {
     freeswitchJNI.CoreSession_set_tts_parms(swigCPtr, this, tts_name, voice_name);
   }
 
+  public void set_tts_params(String tts_name, String voice_name) {
+    freeswitchJNI.CoreSession_set_tts_params(swigCPtr, this, tts_name, voice_name);
+  }
+
   public int collectDigits(int abs_timeout) {
     return freeswitchJNI.CoreSession_collectDigits__SWIG_0(swigCPtr, this, abs_timeout);
   }
@@ -307,6 +311,10 @@ public class CoreSession {
 
   public SWIGTYPE_p_switch_status_t run_dtmf_callback(SWIGTYPE_p_void input, SWIGTYPE_p_switch_input_type_t itype) {
     return new SWIGTYPE_p_switch_status_t(freeswitchJNI.CoreSession_run_dtmf_callback(swigCPtr, this, SWIGTYPE_p_void.getCPtr(input), SWIGTYPE_p_switch_input_type_t.getCPtr(itype)), true);
+  }
+
+  public void consoleLog(String level_str, String msg) {
+    freeswitchJNI.CoreSession_consoleLog(swigCPtr, this, level_str, msg);
   }
 
 }

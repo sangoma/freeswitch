@@ -341,7 +341,7 @@ static void ftdm_sangoma_isdn_wakeup_phy(ftdm_channel_t *dchan)
 
 static void *ftdm_sangoma_isdn_io_run(ftdm_thread_t *me, void *obj)
 {
-	uint8_t data[1000];
+	uint8_t data[8192];
 	unsigned i = 0;
 	ftdm_status_t status = FTDM_SUCCESS;
 	ftdm_span_t *span = (ftdm_span_t*) obj;
@@ -1555,7 +1555,7 @@ EX_DECLARE_DATA ftdm_module_t ftdm_module =
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */
 
 /******************************************************************************/

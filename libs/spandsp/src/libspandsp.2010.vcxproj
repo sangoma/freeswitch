@@ -157,6 +157,7 @@
   <ItemGroup>
     <ClCompile Include="ademco_contactid.c" />
     <ClCompile Include="adsi.c" />
+    <ClCompile Include="alloc.c" />
     <ClCompile Include="async.c" />
     <ClCompile Include="at_interpreter.c" />
     <ClCompile Include="awgn.c" />
@@ -194,6 +195,7 @@
     <ClCompile Include="lpc10_encode.c" />
     <ClCompile Include="lpc10_placev.c" />
     <ClCompile Include="lpc10_voicing.c" />
+    <ClCompile Include="math_fixed.c" />
     <ClCompile Include="modem_echo.c" />
     <ClCompile Include="modem_connect_tones.c" />
     <ClCompile Include="noise.c" />
@@ -209,6 +211,7 @@
     <ClCompile Include="super_tone_tx.c" />
     <ClCompile Include="swept_tone.c" />
     <ClCompile Include="t42.c" />
+    <ClCompile Include="t43.c" />
     <ClCompile Include="t4_rx.c" />
     <ClCompile Include="t4_t6_decode.c" />
     <ClCompile Include="t4_t6_encode.c" />
@@ -292,6 +295,7 @@
     <ClInclude Include="spandsp\private\ademco_contactid.h" />
     <ClInclude Include="spandsp\private\image_translate.h" />
     <ClInclude Include="spandsp\private\t42.h" />
+    <ClInclude Include="spandsp\private\t43.h" />
     <ClInclude Include="spandsp\private\t81_t82_arith_coding.h" />
     <ClInclude Include="spandsp\private\t85.h" />
     <ClInclude Include="spandsp\queue.h" />
@@ -303,6 +307,7 @@
     <ClInclude Include="spandsp\super_tone_tx.h" />
     <ClInclude Include="spandsp\swept_tone.h" />
     <ClInclude Include="spandsp\t42.h" />
+    <ClInclude Include="spandsp\t43.h" />
     <ClInclude Include="spandsp\t4_rx.h" />
     <ClInclude Include="spandsp\t4_tx.h" />
     <ClInclude Include="spandsp\t4_t6_decode.h" />
@@ -426,8 +431,18 @@
       <Project>{dee932ab-5911-4700-9eeb-8c7090a0a330}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+    <ProjectReference Include="msvc\make_cielab_luts.2010.vcxproj">
+      <Project>{85f0cf8c-c7ab-48f6-ba19-cc94cf87f981}</Project>
+    </ProjectReference>
+    <ProjectReference Include="msvc\make_math_fixed_tables.2010.vcxproj">
+      <Project>{9d04a840-ce18-4ff5-a6d3-0a2bb92ff2e6}</Project>
+    </ProjectReference>
     <ProjectReference Include="msvc\make_modem_filter.2010.vcxproj">
       <Project>{329a6fa0-0fcc-4435-a950-e670aefa9838}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="msvc\make_t43_gray_code_tables.2010.vcxproj">
+      <Project>{eddb8ab9-c53e-44c0-a620-0e86c2cbd5d5}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
   </ItemGroup>

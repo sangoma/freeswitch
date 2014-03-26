@@ -25,6 +25,7 @@
  * 
  * Michael Jerris <mike@jerris.com>
  * Eliot Gable <egable@gmail.com>
+ * William King <william.king@quentustech.com>
  *
  * switch_apr.c -- apr wrappers and extensions
  *
@@ -597,10 +598,6 @@ SWITCH_DECLARE(const char *) switch_dir_next_file(switch_dir_t *thedir, char *bu
 			name = thedir->finfo.name;
 		}
 
-		if (!name) {
-			continue;
-		}
-
 		if (name) {
 			switch_copy_string(buf, name, len);
 			fname = buf;
@@ -720,7 +717,7 @@ SWITCH_DECLARE(switch_status_t) switch_socket_connect(switch_socket_t *sock, swi
 
 SWITCH_DECLARE(switch_status_t) switch_socket_send(switch_socket_t *sock, const char *buf, switch_size_t *len)
 {
-	switch_status_t status = SWITCH_STATUS_SUCCESS;
+	int status = SWITCH_STATUS_SUCCESS;
 	switch_size_t req = *len, wrote = 0, need = *len;
 	int to_count = 0;
 
@@ -740,7 +737,7 @@ SWITCH_DECLARE(switch_status_t) switch_socket_send(switch_socket_t *sock, const 
 	}
 
 	*len = wrote;
-	return status;
+	return (switch_status_t)status;
 }
 
 SWITCH_DECLARE(switch_status_t) switch_socket_send_nonblock(switch_socket_t *sock, const char *buf, switch_size_t *len)
@@ -763,7 +760,7 @@ SWITCH_DECLARE(switch_status_t) switch_socket_sendto(switch_socket_t *sock, swit
 
 SWITCH_DECLARE(switch_status_t) switch_socket_recv(switch_socket_t *sock, char *buf, switch_size_t *len)
 {
-	switch_status_t r;
+	int r;
 
 	r = apr_socket_recv(sock, buf, len);
 
@@ -771,7 +768,7 @@ SWITCH_DECLARE(switch_status_t) switch_socket_recv(switch_socket_t *sock, char *
 		r = SWITCH_STATUS_BREAK;
 	}
 
-	return r;
+	return (switch_status_t)r;
 }
 
 SWITCH_DECLARE(switch_status_t) switch_sockaddr_create(switch_sockaddr_t **sa, switch_memory_pool_t *pool)
@@ -837,6 +834,12 @@ SWITCH_DECLARE(switch_status_t) switch_mcast_loopback(switch_socket_t *sock, uin
 	return apr_mcast_loopback(sock, opt);
 }
 
+SWITCH_DECLARE(switch_status_t) switch_mcast_interface(switch_socket_t *sock, switch_sockaddr_t *iface)
+{
+	return apr_mcast_interface(sock, iface);
+}
+												 
+
 /* socket functions */
 
 SWITCH_DECLARE(const char *) switch_get_addr(char *buf, switch_size_t len, switch_sockaddr_t *in)
@@ -869,7 +872,7 @@ SWITCH_DECLARE(switch_status_t) switch_socket_atmark(switch_socket_t *sock, int 
 
 SWITCH_DECLARE(switch_status_t) switch_socket_recvfrom(switch_sockaddr_t *from, switch_socket_t *sock, int32_t flags, char *buf, size_t *len)
 {
-	apr_status_t r = SWITCH_STATUS_GENERR;
+	int r = SWITCH_STATUS_GENERR;
 
 	if (from && sock && (r = apr_socket_recvfrom(from, sock, flags, buf, len)) == APR_SUCCESS) {
 		from->port = ntohs(from->sa.sin.sin_port);
@@ -882,7 +885,7 @@ SWITCH_DECLARE(switch_status_t) switch_socket_recvfrom(switch_sockaddr_t *from, 
 		r = SWITCH_STATUS_BREAK;
 	}
 
-	return r;
+	return (switch_status_t)r;
 }
 
 /* poll stubs */
@@ -1254,5 +1257,5 @@ SWITCH_DECLARE(char *) switch_strerror(switch_status_t statcode, char *buf, swit
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

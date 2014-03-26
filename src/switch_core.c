@@ -28,7 +28,7 @@
  * Paul D. Tinsley <pdt at jackhammer.org>
  * Marcel Barbulescu <marcelbarbulescu@gmail.com>
  * Joseph Sullivan <jossulli@amazon.com>
- *
+ * Seven Du <dujinfang@gmail.com>
  *
  * switch_core.c -- Main Core Library
  *
@@ -53,6 +53,7 @@
 
 
 SWITCH_DECLARE_DATA switch_directories SWITCH_GLOBAL_dirs = { 0 };
+SWITCH_DECLARE_DATA switch_filenames SWITCH_GLOBAL_filenames = { 0 };
 
 /* The main runtime obj we keep this hidden for ourselves */
 struct switch_runtime runtime = { 0 };
@@ -87,7 +88,11 @@ static void send_heartbeat(void)
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Count", "%u", switch_core_session_count());
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Max-Sessions", "%u", switch_core_session_limit(0));
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec", "%u", runtime.sps);
+		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec-Max", "%u", runtime.sps_peak);
+		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Per-Sec-FiveMin", "%u", runtime.sps_peak_fivemin);
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Since-Startup", "%" SWITCH_SIZE_T_FMT, switch_core_session_id() - 1);
+		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Peak-Max", "%u", runtime.sessions_peak);
+		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Session-Peak-FiveMin", "%u", runtime.sessions_peak_fivemin);
 		switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Idle-CPU", "%f", switch_core_idle_cpu());
 		switch_event_fire(&event);
 	}
@@ -306,6 +311,33 @@ SWITCH_DECLARE(const char *) switch_core_get_switchname(void)
 	return runtime.hostname;
 }
 
+SWITCH_DECLARE(char *) switch_core_get_domain(switch_bool_t dup)
+{
+	char *domain;
+	const char *var;
+
+	switch_thread_rwlock_rdlock(runtime.global_var_rwlock);  
+	if (!(var = switch_core_get_variable("domain"))) {
+		var = "freeswitch.local";
+	}
+	if (dup) {
+		domain = strdup(var);
+	} else {
+		domain = (char *) var;
+	}
+	switch_thread_rwlock_unlock(runtime.global_var_rwlock);
+
+	return domain;
+}
+
+SWITCH_DECLARE(switch_status_t) switch_core_get_variables(switch_event_t **event)
+{
+	switch_status_t status;
+	switch_thread_rwlock_rdlock(runtime.global_var_rwlock);
+	status = switch_event_dup(event, runtime.global_vars);
+	switch_thread_rwlock_unlock(runtime.global_var_rwlock);
+	return status;
+}
 
 SWITCH_DECLARE(char *) switch_core_get_variable(const char *varname)
 {
@@ -563,103 +595,142 @@ SWITCH_DECLARE(void) switch_core_set_globals(void)
 	char base_dir[1024] = SWITCH_PREFIX_DIR;
 #endif
 
-	if (!SWITCH_GLOBAL_dirs.base_dir && (SWITCH_GLOBAL_dirs.base_dir = (char *) malloc(BUFSIZE))) {
-		switch_snprintf(SWITCH_GLOBAL_dirs.base_dir, BUFSIZE, "%s", base_dir);
-	}
+	/* Order of precedence for, eg, rundir:
+	 *   -run
+	 *   -base
+	 *   --with-rundir
+	 *   --prefix
+	 */
 
 	if (!SWITCH_GLOBAL_dirs.mod_dir && (SWITCH_GLOBAL_dirs.mod_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.mod_dir, BUFSIZE, "%s%smod", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_MOD_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.mod_dir, BUFSIZE, "%s", SWITCH_MOD_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.mod_dir, BUFSIZE, "%s", SWITCH_MOD_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.mod_dir, BUFSIZE, "%s%smod", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.mod_dir, BUFSIZE, "%s%smod", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.lib_dir && (SWITCH_GLOBAL_dirs.lib_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.lib_dir, BUFSIZE, "%s%slib", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_LIB_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.lib_dir, BUFSIZE, "%s", SWITCH_LIB_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.lib_dir, BUFSIZE, "%s", SWITCH_LIB_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.lib_dir, BUFSIZE, "%s%slib", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.lib_dir, BUFSIZE, "%s%slib", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.conf_dir && (SWITCH_GLOBAL_dirs.conf_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.conf_dir, BUFSIZE, "%s%sconf", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_CONF_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.conf_dir, BUFSIZE, "%s", SWITCH_CONF_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.conf_dir, BUFSIZE, "%s", SWITCH_CONF_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.conf_dir, BUFSIZE, "%s%sconf", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.conf_dir, BUFSIZE, "%s%sconf", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.log_dir && (SWITCH_GLOBAL_dirs.log_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.log_dir, BUFSIZE, "%s%slog", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_LOG_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.log_dir, BUFSIZE, "%s", SWITCH_LOG_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.log_dir, BUFSIZE, "%s", SWITCH_LOG_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.log_dir, BUFSIZE, "%s%slog", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.log_dir, BUFSIZE, "%s%slog", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.run_dir && (SWITCH_GLOBAL_dirs.run_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.run_dir, BUFSIZE, "%s%srun", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_RUN_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.run_dir, BUFSIZE, "%s", SWITCH_RUN_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.run_dir, BUFSIZE, "%s", SWITCH_RUN_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.run_dir, BUFSIZE, "%s%srun", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.run_dir, BUFSIZE, "%s%srun", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.recordings_dir && (SWITCH_GLOBAL_dirs.recordings_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.recordings_dir, BUFSIZE, "%s%srecordings", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_RECORDINGS_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.recordings_dir, BUFSIZE, "%s", SWITCH_RECORDINGS_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.recordings_dir, BUFSIZE, "%s", SWITCH_RECORDINGS_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.recordings_dir, BUFSIZE, "%s%srecordings", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.recordings_dir, BUFSIZE, "%s%srecordings", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.sounds_dir && (SWITCH_GLOBAL_dirs.sounds_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.sounds_dir, BUFSIZE, "%s%ssounds", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_SOUNDS_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.sounds_dir, BUFSIZE, "%s", SWITCH_SOUNDS_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.sounds_dir, BUFSIZE, "%s", SWITCH_SOUNDS_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.sounds_dir, BUFSIZE, "%s%ssounds", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.sounds_dir, BUFSIZE, "%s%ssounds", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.storage_dir && (SWITCH_GLOBAL_dirs.storage_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.storage_dir, BUFSIZE, "%s%sstorage", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_STORAGE_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.storage_dir, BUFSIZE, "%s", SWITCH_STORAGE_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.storage_dir, BUFSIZE, "%s", SWITCH_STORAGE_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.storage_dir, BUFSIZE, "%s%sstorage", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.storage_dir, BUFSIZE, "%s%sstorage", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.db_dir && (SWITCH_GLOBAL_dirs.db_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.db_dir, BUFSIZE, "%s%sdb", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_DB_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.db_dir, BUFSIZE, "%s", SWITCH_DB_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.db_dir, BUFSIZE, "%s", SWITCH_DB_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.db_dir, BUFSIZE, "%s%sdb", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.db_dir, BUFSIZE, "%s%sdb", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.script_dir && (SWITCH_GLOBAL_dirs.script_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.script_dir, BUFSIZE, "%s%sscripts", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_SCRIPT_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.script_dir, BUFSIZE, "%s", SWITCH_SCRIPT_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.script_dir, BUFSIZE, "%s", SWITCH_SCRIPT_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.script_dir, BUFSIZE, "%s%sscripts", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.script_dir, BUFSIZE, "%s%sscripts", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.htdocs_dir && (SWITCH_GLOBAL_dirs.htdocs_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.htdocs_dir, BUFSIZE, "%s%shtdocs", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_HTDOCS_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.htdocs_dir, BUFSIZE, "%s", SWITCH_HTDOCS_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.htdocs_dir, BUFSIZE, "%s", SWITCH_HTDOCS_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.htdocs_dir, BUFSIZE, "%s%shtdocs", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.htdocs_dir, BUFSIZE, "%s%shtdocs", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
 	if (!SWITCH_GLOBAL_dirs.grammar_dir && (SWITCH_GLOBAL_dirs.grammar_dir = (char *) malloc(BUFSIZE))) {
+		if (SWITCH_GLOBAL_dirs.base_dir)
+			switch_snprintf(SWITCH_GLOBAL_dirs.grammar_dir, BUFSIZE, "%s%sgrammar", SWITCH_GLOBAL_dirs.base_dir, SWITCH_PATH_SEPARATOR);
+		else
 #ifdef SWITCH_GRAMMAR_DIR
-		switch_snprintf(SWITCH_GLOBAL_dirs.grammar_dir, BUFSIZE, "%s", SWITCH_GRAMMAR_DIR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.grammar_dir, BUFSIZE, "%s", SWITCH_GRAMMAR_DIR);
 #else
-		switch_snprintf(SWITCH_GLOBAL_dirs.grammar_dir, BUFSIZE, "%s%sgrammar", base_dir, SWITCH_PATH_SEPARATOR);
+			switch_snprintf(SWITCH_GLOBAL_dirs.grammar_dir, BUFSIZE, "%s%sgrammar", base_dir, SWITCH_PATH_SEPARATOR);
 #endif
 	}
 
@@ -680,6 +751,15 @@ SWITCH_DECLARE(void) switch_core_set_globals(void)
 #endif
 	}
 
+	if (!SWITCH_GLOBAL_filenames.conf_name && (SWITCH_GLOBAL_filenames.conf_name = (char *) malloc(BUFSIZE))) {
+		switch_snprintf(SWITCH_GLOBAL_filenames.conf_name, BUFSIZE, "%s", "freeswitch.xml");
+	}
+
+	/* Do this last because it being empty is part of the above logic */
+	if (!SWITCH_GLOBAL_dirs.base_dir && (SWITCH_GLOBAL_dirs.base_dir = (char *) malloc(BUFSIZE))) {
+		switch_snprintf(SWITCH_GLOBAL_dirs.base_dir, BUFSIZE, "%s", base_dir);
+	}
+
 	switch_assert(SWITCH_GLOBAL_dirs.base_dir);
 	switch_assert(SWITCH_GLOBAL_dirs.mod_dir);
 	switch_assert(SWITCH_GLOBAL_dirs.lib_dir);
@@ -693,6 +773,8 @@ SWITCH_DECLARE(void) switch_core_set_globals(void)
 	switch_assert(SWITCH_GLOBAL_dirs.recordings_dir);
 	switch_assert(SWITCH_GLOBAL_dirs.sounds_dir);
 	switch_assert(SWITCH_GLOBAL_dirs.temp_dir);
+
+	switch_assert(SWITCH_GLOBAL_filenames.conf_name);
 }
 
 
@@ -795,12 +877,10 @@ SWITCH_DECLARE(int32_t) set_auto_priority(void)
 
 	if (!runtime.cpu_count) runtime.cpu_count = 1;
 
-	/* If we have more than 1 cpu, we should use realtime priority so we can have priority threads */
-	if (runtime.cpu_count > 1) {
-		return set_realtime_priority();
-	}
+	return set_realtime_priority();
 
-	return 0;
+
+	// ERROR: code not reachable on Windows Visual Studio Express 2008 return 0;
 }
 
 SWITCH_DECLARE(int32_t) change_user_group(const char *user, const char *group)
@@ -1173,6 +1253,7 @@ SWITCH_DECLARE(void) switch_load_network_lists(switch_bool_t reload)
 	tmp_name = "wan.auto";
 	switch_network_list_create(&rfc_list, tmp_name, SWITCH_TRUE, IP_LIST.pool);
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Created ip list %s default (allow)\n", tmp_name);
+	switch_network_list_add_cidr(rfc_list, "0.0.0.0/8", SWITCH_FALSE);
 	switch_network_list_add_cidr(rfc_list, "10.0.0.0/8", SWITCH_FALSE);
 	switch_network_list_add_cidr(rfc_list, "172.16.0.0/12", SWITCH_FALSE);
 	switch_network_list_add_cidr(rfc_list, "192.168.0.0/16", SWITCH_FALSE);
@@ -1585,6 +1666,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_init(switch_core_flag_t flags, switc
 
 	switch_console_init(runtime.memory_pool);
 	switch_event_init(runtime.memory_pool);
+	switch_channel_global_init(runtime.memory_pool);
 
 	if (switch_xml_init(runtime.memory_pool, err) != SWITCH_STATUS_SUCCESS) {
 		apr_terminate();
@@ -1596,12 +1678,12 @@ SWITCH_DECLARE(switch_status_t) switch_core_init(switch_core_flag_t flags, switc
 	}
 
 	switch_log_init(runtime.memory_pool, runtime.colorize_console);
-
-	if (flags & SCF_MINIMAL) return SWITCH_STATUS_SUCCESS;
 			
 	runtime.tipping_point = 0;
 	runtime.timer_affinity = -1;
 	runtime.microseconds_per_tick = 20000;
+
+	if (flags & SCF_MINIMAL) return SWITCH_STATUS_SUCCESS;
 
 	switch_load_core_config("switch.conf");
 
@@ -1619,8 +1701,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_init(switch_core_flag_t flags, switc
 	switch_rtp_init(runtime.memory_pool);
 
 	runtime.running = 1;
-	runtime.initiated = switch_time_now();
-	runtime.mono_initiated = switch_mono_micro_time_now();
+	runtime.initiated = switch_mono_micro_time_now();
 	
 	switch_scheduler_add_task(switch_epoch_time_now(NULL), heartbeat_callback, "heartbeat", "core", 0, NULL, SSHF_NONE | SSHF_NO_DEL);
 
@@ -1678,6 +1759,16 @@ SWITCH_DECLARE(uint32_t) switch_default_ptime(const char *name, uint32_t number)
 	return 20;
 }
 
+SWITCH_DECLARE(uint32_t) switch_default_rate(const char *name, uint32_t number)
+{
+
+	if (!strcasecmp(name, "opus")) {
+		return 48000;
+	}
+
+	return 8000;
+}
+
 static uint32_t d_30 = 30;
 
 static void switch_load_core_config(const char *file)
@@ -1685,7 +1776,9 @@ static void switch_load_core_config(const char *file)
 	switch_xml_t xml = NULL, cfg = NULL;
 
 	switch_core_hash_insert(runtime.ptimes, "ilbc", &d_30);
+	switch_core_hash_insert(runtime.ptimes, "isac", &d_30);
 	switch_core_hash_insert(runtime.ptimes, "G723", &d_30);
+
 
 	if ((xml = switch_xml_open_cfg(file, &cfg, NULL))) {
 		switch_xml_t settings, param;
@@ -1858,9 +1951,18 @@ static void switch_load_core_config(const char *file)
 					switch_core_min_idle_cpu(atof(val));
 				} else if (!strcasecmp(var, "tipping-point") && !zstr(val)) {
 					runtime.tipping_point = atoi(val);
+				} else if (!strcasecmp(var, "events-use-dispatch") && !zstr(val)) {
+					runtime.events_use_dispatch = switch_true(val);
 				} else if (!strcasecmp(var, "initial-event-threads") && !zstr(val)) {
-					int tmp = atoi(val);
+					int tmp;
 
+					if (!runtime.events_use_dispatch) {
+						runtime.events_use_dispatch = 1;
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
+										  "Implicitly setting events-use-dispatch based on usage of this initial-event-threads parameter.\n");
+					}
+
+					tmp = atoi(val);
 
 					if (tmp > runtime.cpu_count / 2) {
 						tmp = runtime.cpu_count / 2;
@@ -1887,6 +1989,8 @@ static void switch_load_core_config(const char *file)
 					switch_rtp_set_start_port((switch_port_t) atoi(val));
 				} else if (!strcasecmp(var, "rtp-end-port") && !zstr(val)) {
 					switch_rtp_set_end_port((switch_port_t) atoi(val));
+				} else if (!strcasecmp(var, "rtp-port-usage-robustness") && switch_true(val)) {
+					runtime.port_alloc_flags |= SPF_ROBUST_UDP;
 				} else if (!strcasecmp(var, "core-db-name") && !zstr(val)) {
 					runtime.dbname = switch_core_strdup(runtime.memory_pool, val);
 				} else if (!strcasecmp(var, "core-db-dsn") && !zstr(val)) {
@@ -1972,6 +2076,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_init_and_modload(switch_core_flag_t 
 	}
 
 	runtime.runlevel++;
+	runtime.events_use_dispatch = 1;
 
 	switch_core_set_signal_handlers();
 	switch_load_network_lists(SWITCH_FALSE);
@@ -2011,7 +2116,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_init_and_modload(switch_core_flag_t 
 #endif
 
 
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE,
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
 					  "\nFreeSWITCH Version %s (%s)\n\nFreeSWITCH Started\nMax Sessions [%u]\nSession Rate [%d]\nSQL [%s]\n",
 					  SWITCH_VERSION_FULL, SWITCH_VERSION_REVISION_HUMAN,
 					  switch_core_session_limit(0),
@@ -2056,7 +2161,7 @@ SWITCH_DECLARE(void) switch_core_measure_time(switch_time_t total_ms, switch_cor
 
 SWITCH_DECLARE(switch_time_t) switch_core_uptime(void)
 {
-	return switch_mono_micro_time_now() - runtime.mono_initiated;
+	return switch_mono_micro_time_now() - runtime.initiated;
 }
 
 
@@ -2094,6 +2199,9 @@ SWITCH_DECLARE(void) switch_core_set_signal_handlers(void)
 #endif
 #ifdef SIGPIPE
 	signal(SIGPIPE, SIG_IGN);
+#endif
+#ifdef SIGALRM
+	signal(SIGALRM, SIG_IGN);
 #endif
 #ifdef SIGQUIT
 	signal(SIGQUIT, SIG_IGN);
@@ -2391,6 +2499,21 @@ SWITCH_DECLARE(int32_t) switch_core_session_ctl(switch_session_ctl_t cmd, void *
 	case SCSC_LAST_SPS:
 		newintval = runtime.sps_last;
 		break;
+	case SCSC_SPS_PEAK:
+		if (oldintval == -1) {
+			runtime.sps_peak = 0;
+		}
+		newintval = runtime.sps_peak;
+		break;
+	case SCSC_SPS_PEAK_FIVEMIN:
+		newintval = runtime.sps_peak_fivemin;
+		break;
+	case SCSC_SESSIONS_PEAK:
+		newintval = runtime.sessions_peak;
+		break;
+	case SCSC_SESSIONS_PEAK_FIVEMIN:
+		newintval = runtime.sessions_peak_fivemin;
+		break;
 	case SCSC_MAX_DTMF_DURATION:
 		newintval = switch_core_max_dtmf_duration(oldintval);
 		break;
@@ -2479,8 +2602,8 @@ SWITCH_DECLARE(switch_status_t) switch_core_destroy(void)
 		switch_nat_shutdown();
 	}
 	switch_xml_destroy();
-	switch_core_session_uninit();
 	switch_console_shutdown();
+	switch_channel_global_uninit();
 
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Closing Event Engine.\n");
 	switch_event_shutdown();
@@ -2488,6 +2611,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_destroy(void)
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CONSOLE, "Finalizing Shutdown.\n");
 	switch_log_shutdown();
 
+	switch_core_session_uninit();
 	switch_core_unset_variables();
 	switch_core_memory_stop();
 
@@ -2563,16 +2687,20 @@ static void *SWITCH_THREAD_FUNC system_thread(switch_thread_t *thread, void *obj
 {
 	struct system_thread_handle *sth = (struct system_thread_handle *) obj;
 
-#if 0							// if we are a luser we can never turn this back down, didn't we already set the stack size?
 #if defined(HAVE_SETRLIMIT) && !defined(__FreeBSD__)
 	struct rlimit rlim;
+	struct rlimit rlim_save;
 
-	rlim.rlim_cur = SWITCH_SYSTEM_THREAD_STACKSIZE;
-	rlim.rlim_max = SWITCH_SYSTEM_THREAD_STACKSIZE;
+	memset(&rlim, 0, sizeof(rlim));
+	getrlimit(RLIMIT_STACK, &rlim);
+
+	memset(&rlim_save, 0, sizeof(rlim_save));
+	getrlimit(RLIMIT_STACK, &rlim_save);
+
+	rlim.rlim_cur = rlim.rlim_max;
 	if (setrlimit(RLIMIT_STACK, &rlim) < 0) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Setting stack size failed! (%s)\n", strerror(errno));
 	}
-#endif
 #endif
 
 	if (sth->fds) {
@@ -2581,14 +2709,10 @@ static void *SWITCH_THREAD_FUNC system_thread(switch_thread_t *thread, void *obj
 
 	sth->ret = system(sth->cmd);
 
-#if 0
 #if defined(HAVE_SETRLIMIT) && !defined(__FreeBSD__)
-	rlim.rlim_cur = SWITCH_THREAD_STACKSIZE;
-	rlim.rlim_max = SWITCH_SYSTEM_THREAD_STACKSIZE;
-	if (setrlimit(RLIMIT_STACK, &rlim) < 0) {
+	if (setrlimit(RLIMIT_STACK, &rlim_save) < 0) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Setting stack size failed! (%s)\n", strerror(errno));
 	}
-#endif
 #endif
 
 	switch_mutex_lock(sth->mutex);
@@ -2711,6 +2835,10 @@ static int switch_system_fork(const char *cmd, switch_bool_t wait)
 {
 	int pid;
 	char *dcmd = strdup(cmd);
+#if defined(HAVE_SETRLIMIT) && !defined(__FreeBSD__)
+	struct rlimit rlim;
+	struct rlimit rlim_save;
+#endif
 
 	switch_core_set_signal_handlers();
 
@@ -2723,7 +2851,20 @@ static int switch_system_fork(const char *cmd, switch_bool_t wait)
 		free(dcmd);
 	} else {
 		switch_close_extra_files(NULL, 0);
-		
+
+#if defined(HAVE_SETRLIMIT) && !defined(__FreeBSD__)
+		memset(&rlim, 0, sizeof(rlim));
+		getrlimit(RLIMIT_STACK, &rlim);
+
+		memset(&rlim_save, 0, sizeof(rlim_save));
+		getrlimit(RLIMIT_STACK, &rlim_save);
+
+		rlim.rlim_cur = rlim.rlim_max;
+		if (setrlimit(RLIMIT_STACK, &rlim) < 0) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Setting stack size failed! (%s)\n", strerror(errno));
+		}
+#endif
+
 		if (system(dcmd) == -1) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Failed to execute because of a command error : %s\n", dcmd);
 		}
@@ -2835,5 +2976,5 @@ SWITCH_DECLARE(int) switch_stream_system(const char *cmd, switch_stream_handle_t
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

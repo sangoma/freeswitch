@@ -38,16 +38,23 @@
 #if defined(HAVE_MATH_H)
 #include <math.h>
 #endif
+#if defined(HAVE_STDBOOL_H)
+#include <stdbool.h>
+#else
+#include "spandsp/stdbool.h"
+#endif
 #include "floating_fudge.h"
 #include <assert.h>
 
 #include "spandsp/telephony.h"
+#include "spandsp/alloc.h"
 #include "spandsp/complex.h"
 #include "spandsp/dds.h"
 #include "spandsp/power_meter.h"
 #include "spandsp/async.h"
 #include "spandsp/fsk.h"
 
+#include "spandsp/private/power_meter.h"
 #include "spandsp/private/fsk.h"
 
 const fsk_spec_t preset_fsk_specs[] =
@@ -69,6 +76,7 @@ const fsk_spec_t preset_fsk_specs[] =
         300*100
     },
     {
+        /* This is mode 2 of the V.23 spec. Mode 1 (the 600baud mode) is not defined here */
         "V23 ch 1",
         1700 + 400,
         1700 - 400,
@@ -117,12 +125,20 @@ const fsk_spec_t preset_fsk_specs[] =
          4545
     },
     {
-        "Weitbrecht 50",    /* Used for Internatioal TDD (Telecoms Device for the Deaf) */
+        "Weitbrecht 50",    /* Used for international TDD (Telecoms Device for the Deaf) */
         1600 + 200,
         1600 - 200,
         -14,
         -30,
          50*100
+    },
+    {
+        "Weitbrecht 47.6",  /* Used for V.18 probing */
+        1600 + 200,
+        1600 - 200,
+        -14,
+        -30,
+         4760
     },
     {
         "V21 (110bps) ch 1",
@@ -144,8 +160,8 @@ SPAN_DECLARE(int) fsk_tx_restart(fsk_tx_state_t *s, const fsk_spec_t *spec)
     s->phase_acc = 0;
     s->baud_frac = 0;
     s->current_phase_rate = s->phase_rates[1];
-    
-    s->shutdown = FALSE;
+
+    s->shutdown = false;
     return 0;
 }
 /*- End of function --------------------------------------------------------*/
@@ -157,7 +173,7 @@ SPAN_DECLARE(fsk_tx_state_t *) fsk_tx_init(fsk_tx_state_t *s,
 {
     if (s == NULL)
     {
-        if ((s = (fsk_tx_state_t *) malloc(sizeof(*s))) == NULL)
+        if ((s = (fsk_tx_state_t *) span_alloc(sizeof(*s))) == NULL)
             return NULL;
     }
     memset(s, 0, sizeof(*s));
@@ -177,7 +193,7 @@ SPAN_DECLARE(int) fsk_tx_release(fsk_tx_state_t *s)
 
 SPAN_DECLARE(int) fsk_tx_free(fsk_tx_state_t *s)
 {
-    free(s);
+    span_free(s);
     return 0;
 }
 /*- End of function --------------------------------------------------------*/
@@ -204,7 +220,7 @@ SPAN_DECLARE_NONSTD(int) fsk_tx(fsk_tx_state_t *s, int16_t amp[], int len)
                     s->status_handler(s->status_user_data, SIG_STATUS_END_OF_DATA);
                 if (s->status_handler)
                     s->status_handler(s->status_user_data, SIG_STATUS_SHUTDOWN_COMPLETE);
-                s->shutdown = TRUE;
+                s->shutdown = true;
                 break;
             }
             s->current_phase_rate = s->phase_rates[bit & 1];
@@ -273,7 +289,7 @@ SPAN_DECLARE(int) fsk_rx_restart(fsk_rx_state_t *s, const fsk_spec_t *spec, int 
 
     /* Detect by correlating against the tones we want, over a period
        of one baud. The correlation must be quadrature. */
-    
+
     /* First we need the quadrature tone generators to correlate
        against. */
     s->phase_rate[0] = dds_phase_rate((float) spec->freq_zero);
@@ -303,7 +319,7 @@ SPAN_DECLARE(int) fsk_rx_restart(fsk_rx_state_t *s, const fsk_spec_t *spec, int 
     s->frame_state = 0;
     s->frame_bits = 0;
     s->last_bit = 0;
-    
+
     /* Initialise a power detector, so sense when a signal is present. */
     power_meter_init(&(s->power), 4);
     s->signal_present = 0;
@@ -319,7 +335,7 @@ SPAN_DECLARE(fsk_rx_state_t *) fsk_rx_init(fsk_rx_state_t *s,
 {
     if (s == NULL)
     {
-        if ((s = (fsk_rx_state_t *) malloc(sizeof(*s))) == NULL)
+        if ((s = (fsk_rx_state_t *) span_alloc(sizeof(*s))) == NULL)
             return NULL;
     }
     memset(s, 0, sizeof(*s));
@@ -339,7 +355,7 @@ SPAN_DECLARE(int) fsk_rx_release(fsk_rx_state_t *s)
 
 SPAN_DECLARE(int) fsk_rx_free(fsk_rx_state_t *s)
 {
-    free(s);
+    span_free(s);
     return 0;
 }
 /*- End of function --------------------------------------------------------*/

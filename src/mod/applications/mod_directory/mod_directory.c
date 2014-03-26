@@ -531,6 +531,7 @@ static switch_status_t populate_database(switch_core_session_t *session, dir_pro
 	char *sql = NULL;
 	char *sqlvalues = NULL;
 	char *sqltmp = NULL;
+	int count = 0;
 
 	switch_xml_t xml_root = NULL, x_domain;
 	switch_xml_t ut;
@@ -633,13 +634,22 @@ static switch_status_t populate_database(switch_core_session_t *session, dir_pro
 					switch_safe_free(fullNameDigit);
 					switch_safe_free(lastNameDigit);
 					switch_safe_free(firstNameDigit);
+					
+					if (++count >= 100) {
+						count = 0;
+						sql = switch_mprintf("BEGIN;%s;COMMIT;", sqlvalues);
+						directory_execute_sql(sql, globals.mutex);
+						switch_safe_free(sql);
+						switch_safe_free(sqlvalues);
+					}
 				}
 			}
 		}
 	}
-	sql = switch_mprintf("BEGIN;%s;COMMIT;", sqlvalues);
-	directory_execute_sql(sql, globals.mutex);
-
+	if (sqlvalues) {
+		sql = switch_mprintf("BEGIN;%s;COMMIT;", sqlvalues);
+		directory_execute_sql(sql, globals.mutex);
+	}
   end:
 	switch_safe_free(sql);
 	switch_safe_free(sqlvalues);
@@ -810,7 +820,7 @@ switch_status_t navigate_entrys(switch_core_session_t *session, dir_profile_t *p
 	cbt.len = sizeof(entry_count);
 
 	if (params->search_by == SEARCH_BY_FIRST_AND_LAST_NAME) {
-		sql_where = switch_mprintf("hostname = '%q' and uuid = '%q' and name_visible = 1 and (%s like '%q%%' or %s like '%q%%'",
+		sql_where = switch_mprintf("hostname = '%q' and uuid = '%q' and name_visible = 1 and (%s like '%q%%' or %s like '%q%%')",
 				globals.hostname, switch_core_session_get_uuid(session), "last_name_digit", params->digits, "first_name_digit", params->digits);
 	} else if (params->search_by == SEARCH_BY_FULL_NAME) {
 		sql_where = switch_mprintf("hostname = '%q' and uuid = '%q' and name_visible = 1 and full_name_digit like '%%%q%%'",
@@ -1077,5 +1087,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_directory_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet
  */

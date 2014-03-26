@@ -227,6 +227,7 @@ class EventConsumer(_object):
     __del__ = lambda self : None;
     def bind(*args): return _freeswitch.EventConsumer_bind(*args)
     def pop(*args): return _freeswitch.EventConsumer_pop(*args)
+    def cleanup(*args): return _freeswitch.EventConsumer_cleanup(*args)
 EventConsumer_swigregister = _freeswitch.EventConsumer_swigregister
 EventConsumer_swigregister(EventConsumer)
 
@@ -289,6 +290,7 @@ class CoreSession(_object):
     def setDTMFCallback(*args): return _freeswitch.CoreSession_setDTMFCallback(*args)
     def speak(*args): return _freeswitch.CoreSession_speak(*args)
     def set_tts_parms(*args): return _freeswitch.CoreSession_set_tts_parms(*args)
+    def set_tts_params(*args): return _freeswitch.CoreSession_set_tts_params(*args)
     def collectDigits(*args): return _freeswitch.CoreSession_collectDigits(*args)
     def getDigits(*args): return _freeswitch.CoreSession_getDigits(*args)
     def transfer(*args): return _freeswitch.CoreSession_transfer(*args)
@@ -315,6 +317,7 @@ class CoreSession(_object):
     def get_cb_args(*args): return _freeswitch.CoreSession_get_cb_args(*args)
     def check_hangup_hook(*args): return _freeswitch.CoreSession_check_hangup_hook(*args)
     def run_dtmf_callback(*args): return _freeswitch.CoreSession_run_dtmf_callback(*args)
+    def consoleLog(*args): return _freeswitch.CoreSession_consoleLog(*args)
 CoreSession_swigregister = _freeswitch.CoreSession_swigregister
 CoreSession_swigregister(CoreSession)
 

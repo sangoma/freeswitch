@@ -54,6 +54,7 @@ ESL_DECLARE(esl_status_t) esl_buffer_create(esl_buffer_t **buffer, esl_size_t bl
 	esl_buffer_t *new_buffer;
 
 	new_buffer = malloc(sizeof(*new_buffer));
+
 	if (new_buffer) {
 		memset(new_buffer, 0, sizeof(*new_buffer));
 
@@ -335,9 +336,10 @@ ESL_DECLARE(void) esl_buffer_destroy(esl_buffer_t **buffer)
 {
 	if (*buffer) {
 		free((*buffer)->data);
+		(*buffer)->data = NULL;
 		free(*buffer);
 	}
-
+	
 	*buffer = NULL;
 }
 
@@ -349,5 +351,5 @@ ESL_DECLARE(void) esl_buffer_destroy(esl_buffer_t **buffer)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

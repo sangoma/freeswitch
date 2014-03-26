@@ -3,9 +3,17 @@ SUBDIRS = . src
 AUTOMAKE_OPTIONS = foreign
 NAME = freeswitch
 
+AM_LIBAPR_CFLAGS := $(shell ./libs/apr/apr-1-config --cflags)
+AM_LIBAPR_CPPFLAGS := $(shell ./libs/apr/apr-1-config --cppflags --includes)
+AM_LIBAPR_LDFLAGS := $(shell ./libs/apr/apr-1-config --ldflags)
+AM_LIBAPR_LIBS := $(subst $(switch_srcdir)/,,$(shell ./libs/apr/apr-1-config \--libs))
+AM_LIBAPU_CPPFLAGS := $(shell ./libs/apr-util/apu-1-config --includes)
+AM_LIBAPU_LDFLAGS := $(shell ./libs/apr-util/apu-1-config --ldflags)
+AM_LIBAPU_LIBS := $(subst $(switch_srcdir)/,,$(shell ./libs/apr-util/apu-1-config \--libs))
+
 AM_CFLAGS   = $(SWITCH_AM_CFLAGS) $(SWITCH_ANSI_CFLAGS) 
 AM_CPPFLAGS = $(SWITCH_AM_CXXFLAGS) -Ilibs/sofia-sip/libsofia-sip-ua/sdp/sofia-sip -Ilibs/sofia-sip/libsofia-sip-ua/su
-AM_LDFLAGS  = $(SWITCH_AM_LDFLAGS)
+AM_LDFLAGS  = $(SWITCH_AM_LDFLAGS) $(AM_LIBAPR_LDFLAGS) $(AM_LIBAPU_LDFLAGS)
 
 DEFAULT_SOUNDS=en-us-callie-8000
 
@@ -33,7 +41,6 @@ DEFAULT_SOUNDS=en-us-callie-8000
 	      $(MAKE) $(AM_MAKEFLAGS) core && cd src/mod && $(MAKE) $(AM_MAKEFLAGS) $@ ;\
 	   fi; \
 	 fi
-
 
 sounds: sounds-en-us-callie-8000
 sounds-install: sounds-en-us-callie-8000-install
@@ -72,9 +79,38 @@ cd-moh-install: uhd-moh-install sounds-music-48000-install
 all-recursive: libfreeswitch.la
 clean-recusive: clean_core
 install-recursive: install-libLTLIBRARIES install-binPROGRAMS
+$(RECURSIVE_TARGETS): freeswitch
+	@failcom='exit 1'; \
+	for f in x $$MAKEFLAGS; do \
+	  case $$f in \
+	    *=* | --[!k]*);; \
+	    *k*) failcom='fail=yes';; \
+	  esac; \
+	done; \
+	dot_seen=no; \
+	target=`echo $@ | sed s/-recursive//`; \
+	list='$(SUBDIRS)'; for subdir in $$list; do \
+	  echo "Making $$target in $$subdir"; \
+	  if test "$$subdir" = "."; then \
+	    dot_seen=yes; \
+	    local_target="$$target-am"; \
+	  else \
+	    local_target="$$target"; \
+	  fi; \
+	  (cd $$subdir && $(MAKE) $(AM_MAKEFLAGS) $$local_target) \
+	  || eval $$failcom; \
+	done; \
+	if test "$$dot_seen" = "no"; then \
+	  $(MAKE) $(AM_MAKEFLAGS) "$$target-am" || exit 1; \
+	fi; \
+	if test -z "$$fail" ; then \
+	   cd $(top_builddir)/build && $(MAKE) $(AM_MAKEFLAGS) $$target || exit 1; \
+	else \
+	   exit 1; \
+	fi ;
 
-CORE_CFLAGS  = `$(switch_builddir)/libs/apr/apr-1-config --cflags --cppflags --includes`
-CORE_CFLAGS += `$(switch_builddir)/libs/apr-util/apu-1-config --includes`
+CORE_CFLAGS  = $(AM_LIBAPR_CFLAGS) $(AM_LIBAPR_CPPFLAGS)
+CORE_CFLAGS += $(AM_LIBAPU_CPPFLAGS)
 CORE_CFLAGS += -I$(switch_srcdir)/libs/libtpl-1.5/src
 CORE_CFLAGS += -I$(switch_srcdir)/libs/stfu
 CORE_CFLAGS += -I$(switch_builddir)/libs/sqlite
@@ -84,9 +120,9 @@ CORE_CFLAGS += -I$(switch_srcdir)/libs/srtp/include
 CORE_CFLAGS += -I$(switch_srcdir)/libs/srtp/crypto/include -Ilibs/srtp/crypto/include
 CORE_CFLAGS += -I$(switch_srcdir)/libs/spandsp/src -I$(switch_srcdir)/libs/tiff-4.0.2/libtiff
 
+APR_LIBS   = $(AM_LIBAPU_LIBS) $(AM_LIBAPR_LIBS)
 CORE_LIBS  = libs/apr-util/libaprutil-1.la libs/apr/libapr-1.la
 CORE_LIBS += libs/sqlite/libsqlite3.la libs/pcre/libpcre.la libs/speex/libspeex/libspeexdsp.la
-CORE_LIBS += libs/sofia-sip/libsofia-sip-ua/sdp/libsdp.la libs/sofia-sip/libsofia-sip-ua/su/libsu.la
 
 if ENABLE_SRTP
 CORE_CFLAGS += -DENABLE_SRTP
@@ -103,7 +139,7 @@ endif
 
 if HAVE_LIBEDIT
 CORE_CFLAGS += -I$(switch_srcdir)/libs/libedit/src -DSWITCH_HAVE_LIBEDIT
-CORE_LIBS   += libs/libedit/src/.libs/libedit.a
+CORE_LIBS   += libs/libedit/src/.libs/libedit.a $(TINFO_LIBS)
 endif
 
 if ENABLE_TIMERFD_WRAPPER
@@ -120,7 +156,7 @@ endif
 lib_LTLIBRARIES	         = libfreeswitch.la
 libfreeswitch_la_CFLAGS  = $(CORE_CFLAGS) $(AM_CFLAGS)
 libfreeswitch_la_LDFLAGS = -version-info 1:0:0 $(AM_LDFLAGS) $(PLATFORM_CORE_LDFLAGS)
-libfreeswitch_la_LIBADD  = $(CORE_LIBS) $(PLATFORM_CORE_LIBS)
+libfreeswitch_la_LIBADD  = $(CORE_LIBS) $(APR_LIBS) $(PLATFORM_CORE_LIBS)
 libfreeswitch_la_DEPENDENCIES = $(BUILT_SOURCES)
 
 if HAVE_ODBC
@@ -132,11 +168,11 @@ CORE_CFLAGS += -I$(switch_srcdir)/libs/libzrtp/third_party/bgaes
 CORE_CFLAGS += -I$(switch_srcdir)/libs/libzrtp/third_party/bnlib
 CORE_CFLAGS += -isystem $(switch_srcdir)/libs/libzrtp/include
 ZRTP_LDFLAGS = -L$(switch_srcdir)/libs/libzrtp/third_party/bnlib
-ZRTP_LDFLAGS += -L$(switch_srcdir)/libs/libzrtp/projects/gnu/build
+ZRTP_LDFLAGS += -L$(switch_srcdir)/libs/libzrtp
 ZRTP_LIBS = -lbn -lzrtp
 libfreeswitch_la_LDFLAGS += $(ZRTP_LDFLAGS)
 libfreeswitch_la_LIBADD += $(ZRTP_LIBS)
-CORE_LIBS += libs/libzrtp/projects/gnu/build/libzrtp.a
+CORE_LIBS += libs/libzrtp/libzrtp.a
 LIBS += libs/libzrtp/third_party/bnlib/libbn.a
 endif
 
@@ -174,6 +210,7 @@ library_include_HEADERS = \
 	src/include/switch_xml.h \
 	src/include/switch_xml_config.h \
 	src/include/switch_cpp.h \
+	src/include/switch_curl.h \
 	src/include/switch_json.h \
 	libs/stfu/stfu.h \
 	libs/libteletone/src/libteletone_detect.h \
@@ -260,6 +297,7 @@ libfreeswitch_la_SOURCES = \
 	libs/libnatpmp/natpmp.c \
 	libs/libnatpmp/getgateway.c\
 	libs/spandsp/src/plc.c \
+	libs/spandsp/src/alloc.c \
 	libs/spandsp/src/bit_operations.c
 
 if ENABLE_CPP
@@ -292,7 +330,7 @@ fs_cli_LDFLAGS = $(AM_LDFLAGS) -lpthread $(ESL_LDFLAGS) -lm
 
 if HAVE_LIBEDIT
 fs_cli_CFLAGS += -DHAVE_EDITLINE -I$(switch_srcdir)/libs/libedit/src
-fs_cli_LDADD   = libs/libedit/src/.libs/libedit.a
+fs_cli_LDADD   = libs/libedit/src/.libs/libedit.a $(TINFO_LIBS)
 endif
 
 
@@ -302,7 +340,7 @@ endif
 fs_encode_SOURCES = src/fs_encode.c
 fs_encode_CFLAGS  = $(AM_CFLAGS)
 fs_encode_LDFLAGS = $(AM_LDFLAGS)
-fs_encode_LDADD   = libfreeswitch.la $(CORE_LIBS)
+fs_encode_LDADD   = libfreeswitch.la $(CORE_LIBS) $(APR_LIBS)
 
 if HAVE_ODBC
 fs_encode_LDADD += $(ODBC_LIB_FLAGS)
@@ -315,7 +353,7 @@ endif
 tone2wav_SOURCES = src/tone2wav.c
 tone2wav_CFLAGS  = $(AM_CFLAGS)
 tone2wav_LDFLAGS = $(AM_LDFLAGS)
-tone2wav_LDADD   = libfreeswitch.la $(CORE_LIBS)
+tone2wav_LDADD   = libfreeswitch.la $(CORE_LIBS) $(APR_LIBS)
 
 if HAVE_ODBC
 tone2wav_LDADD += $(ODBC_LIB_FLAGS)
@@ -341,7 +379,7 @@ freeswitch_LDADD   = libfreeswitch.la libs/apr/libapr-1.la
 
 if HAVE_LIBEDIT
 freeswitch_CFLAGS += -Ilibs/libedit/src -DSWITCH_HAVE_LIBEDIT
-freeswitch_LDADD  += libs/libedit/src/.libs/libedit.a
+freeswitch_LDADD  += libs/libedit/src/.libs/libedit.a $(TINFO_LIBS)
 endif
 
 if HAVE_ODBC
@@ -414,13 +452,13 @@ src/include/switch_version.h: src/include/switch_version.h.in Makefile build/pri
 libs/libedit/src/.libs/libedit.a:
 	cd libs/libedit && $(MAKE)
 
-libs/libzrtp/projects/gnu/build/libzrtp.a:
-	cd libs/libzrtp/projects/gnu && $(MAKE)
+libs/libzrtp/libzrtp.a:
+	cd libs/libzrtp && $(MAKE)
 
 libs/sofia-sip/Makefile:
 	cd libs/sofia-sip && sh ./configure.gnu --prefix=$(prefix)
 
-libs/sofia-sip/libsofia-sip-ua/sdp/libsdp.la libs/sofia-sip/libsofia-sip-ua/su/libsu.la: libs/sofia-sip/.update libs/sofia-sip/Makefile
+libs/sofia-sip/libsofia-sip-ua/sdp/.libs/libsdp.a libs/sofia-sip/libsofia-sip-ua/su/.libs/libsu.a: libs/sofia-sip/.update libs/sofia-sip/Makefile
 	@cd libs/sofia-sip && $(MAKE) noop
 	@cd libs/sofia-sip && $(MAKE) SOFIA_CFLAGS="$(SWITCH_AM_CFLAGS)"
 	@$(TOUCH_TARGET)
@@ -437,18 +475,17 @@ libs/apr/Makefile: libs/apr/Makefile.in libs/apr/config.status libs/apr libs/apr
 	@$(TOUCH_TARGET)
 
 libs/apr/libapr-1.la: libs/apr/Makefile libs/apr/.update
-	touch src/include/switch.h
-	@cd libs/apr && $(MAKE)
-	@$(TOUCH_TARGET)
+	@if [ $(MAKELEVEL) = 0 -o -z "`echo "$(MAKEARGS)" | grep  "j"`" ] ; then touch src/include/switch.h; cd libs/apr && $(MAKE) $(MFLAGS) && touch libapr-1.la; fi
 
-libs/apr-util/libaprutil-1.la: libs/apr-util libs/apr-util/.update libs/apr/libapr-1.la
-	touch src/include/switch.h
-	@cd libs/apr-util && $(MAKE)
-	@$(TOUCH_TARGET)
+libs/apr-util/libaprutil-1.la: libs/apr/libapr-1.la libs/apr-util libs/apr-util/.update
+	@if [ $(MAKELEVEL) = 0 -o -z "`echo "$(MAKEARGS)" | grep  "j"`" ] ; then touch src/include/switch.h; cd libs/apr-util && $(MAKE) $(MFLAGS) && touch libaprutil-1.la; fi
+
+libs/speex/libspeex/libspeex.la:
+	@echo 
 
 libs/speex/libspeex/libspeexdsp.la: libs/speex/.update
 	touch src/include/switch.h
-	@cd libs/speex && $(MAKE)
+	@if [ $(MAKELEVEL) = 0 -o -z "`echo "$(MAKEARGS)" | grep  "j"`" ] ; then cd libs/speex && $(MAKE) $(MFLAGS); fi
 	@$(TOUCH_TARGET)
 
 libs/sqlite/libsqlite3.la: libs/sqlite libs/sqlite/Makefile libs/sqlite/.update
@@ -551,7 +588,7 @@ nodepends: .nodepends
 yesdepends:
 	rm .nodepends
 
-core: $(switch_builddir)/modules.conf
+core: $(switch_builddir)/modules.conf src/include/switch_version.h
 	$(MAKE) $(AM_MAKEFLAGS) libfreeswitch.la
 
 distclean: clean
@@ -597,7 +634,7 @@ pristine:
 	git clean -fdx
 	git reset --hard
 
-update-clean: clean libs/openzap/Makefile python-reconf
+update-clean: clean libs/openzap/Makefile python-reconf lua-reconf spandsp-reconf
 	cd libs/sofia-sip && $(MAKE) clean
 	cd libs/openzap && $(MAKE) clean
 	cd libs/portaudio && $(MAKE) clean
@@ -655,6 +692,10 @@ sofia-reconf:
 	cd libs/sofia-sip && sh ./autogen.sh
 	cd libs/sofia-sip && $(MAKE) clean
 	cd libs/sofia-sip && ./configure --prefix=$(prefix) --with-pic --with-glib=no --disable-shared
+
+lua-reconf:
+	cd src/mod/languages/mod_lua/lua && make clean
+	cd src/mod/languages/mod_lua && make clean
 
 cluecon:
 	@clear

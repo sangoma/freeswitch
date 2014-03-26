@@ -99,18 +99,47 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_video_frame(switch_core
 	return status;
 }
 
+SWITCH_DECLARE(void) switch_core_gen_encoded_silence(unsigned char *data, const switch_codec_implementation_t *read_impl, switch_size_t len)
+{
+	unsigned char g729_filler[] = {
+		114, 170, 250, 103, 54, 211, 203, 194, 94, 64, 
+		229, 127, 79, 96, 207, 82, 216, 110, 245, 81,
+		114, 170, 250, 103, 54, 211, 203, 194, 94, 64, 
+		229, 127, 79, 96, 207, 82, 216, 110, 245, 81,
+		114, 170, 250, 103, 54, 211, 203, 194, 94, 64, 
+		229, 127, 79, 96, 207, 82, 216, 110, 245, 81,
+		114, 170, 250, 103, 54, 211, 203, 194, 94, 64, 
+		229, 127, 79, 96, 207, 82, 216, 110, 245, 81,
+		114, 170, 250, 103, 54, 211, 203, 194, 94, 64, 
+		229, 127, 79, 96, 207, 82, 216, 110, 245, 81,
+		114, 170, 250, 103, 54, 211, 203, 194, 94, 64, 
+		229, 127, 79, 96, 207, 82, 216, 110, 245, 81,
+		114, 170, 250, 103, 54, 211, 203, 194, 94, 64, 
+		229, 127, 79, 96, 207, 82, 216, 110, 245, 81
+	};
+
+	
+	if (read_impl->ianacode == 18 || switch_stristr("g729", read_impl->iananame)) {
+		memcpy(data, g729_filler, len);
+	} else {
+		memset(data, 255, len);
+	}
+
+}
+
 SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_session_t *session, switch_frame_t **frame, switch_io_flag_t flags,
 															   int stream_id)
 {
 	switch_io_event_hook_read_frame_t *ptr;
 	switch_status_t status = SWITCH_STATUS_FALSE;
-	int need_codec, perfect, do_bugs = 0, do_resample = 0, is_cng = 0;
+	int need_codec, perfect, do_bugs = 0, do_resample = 0, is_cng = 0, tap_only = 0;
 	switch_codec_implementation_t codec_impl;
 	unsigned int flag = 0;
 	int i;
 
 	switch_assert(session != NULL);
 
+	tap_only = switch_test_flag(session, SSF_MEDIA_BUG_TAP_ONLY);
 
 	switch_os_yield();
 
@@ -150,8 +179,10 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
   top:
 	
 	for(i = 0; i < 2; i++) {
-		if (session->dmachine[i] && !switch_channel_test_flag(session->channel, CF_BROADCAST)) {
+		if (session->dmachine[i]) {
+			switch_channel_dtmf_lock(session->channel);
 			switch_ivr_dmachine_ping(session->dmachine[i], NULL);
+			switch_channel_dtmf_unlock(session->channel);
 		}
 	}
 	
@@ -219,7 +250,6 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 			status = SWITCH_STATUS_FALSE;
 			goto even_more_done;			
 		}
-
 	}
 
 	if (status != SWITCH_STATUS_SUCCESS) {
@@ -245,17 +275,131 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 		goto done;
 	}
 
+	if (session->bugs && !((*frame)->flags & SFF_CNG) && !((*frame)->flags & SFF_NOT_AUDIO)) {
+		switch_media_bug_t *bp;
+		switch_bool_t ok = SWITCH_TRUE;
+		int prune = 0;
+
+		switch_thread_rwlock_rdlock(session->bug_rwlock);
+
+		for (bp = session->bugs; bp; bp = bp->next) {
+			ok = SWITCH_TRUE;
+
+			if (switch_channel_test_flag(session->channel, CF_PAUSE_BUGS) && !switch_core_media_bug_test_flag(bp, SMBF_NO_PAUSE)) {
+				continue;
+			}
+			
+			if (!switch_channel_test_flag(session->channel, CF_ANSWERED) && switch_core_media_bug_test_flag(bp, SMBF_ANSWER_REQ)) {
+				continue;
+			}
+			if (switch_test_flag(bp, SMBF_PRUNE)) {
+				prune++;
+				continue;
+			}
+			
+			if (bp->ready) {
+				if (switch_test_flag(bp, SMBF_TAP_NATIVE_READ)) {
+					if ((*frame)->codec && (*frame)->codec->implementation && 
+						(*frame)->codec->implementation->encoded_bytes_per_packet && 
+						(*frame)->datalen != (*frame)->codec->implementation->encoded_bytes_per_packet) {
+						switch_set_flag((*frame), SFF_CNG);
+						break;
+					}
+					if (bp->callback) {
+						bp->native_read_frame = *frame;
+						ok = bp->callback(bp, bp->user_data, SWITCH_ABC_TYPE_TAP_NATIVE_READ);
+						bp->native_read_frame = NULL;
+					}
+				}
+			}
+			
+			if ((bp->stop_time && bp->stop_time <= switch_epoch_time_now(NULL)) || ok == SWITCH_FALSE) {
+				switch_set_flag(bp, SMBF_PRUNE);
+				prune++;
+			}
+		}
+		switch_thread_rwlock_unlock(session->bug_rwlock);
+
+		if (prune) {
+			switch_core_media_bug_prune(session);
+		}
+	}
+
 	codec_impl = *(*frame)->codec->implementation;
 
 	if (session->read_codec->implementation->impl_id != codec_impl.impl_id) {
 		need_codec = TRUE;
+		tap_only = 0;
 	} 
 	
 	if (codec_impl.actual_samples_per_second != session->read_impl.actual_samples_per_second) {
 		do_resample = 1;
 	}
 
-	if (session->bugs && !need_codec) {
+	if (tap_only) {
+		switch_media_bug_t *bp;
+		switch_bool_t ok = SWITCH_TRUE;
+		int prune = 0;		
+		
+		need_codec = 0;
+		do_resample = 0;
+		do_bugs = 0;
+		
+		if (session->bugs && switch_test_flag((*frame), SFF_CNG)) {
+			switch_thread_rwlock_rdlock(session->bug_rwlock);
+			for (bp = session->bugs; bp; bp = bp->next) {
+				ok = SWITCH_TRUE;
+
+				if (switch_channel_test_flag(session->channel, CF_PAUSE_BUGS) && !switch_core_media_bug_test_flag(bp, SMBF_NO_PAUSE)) {
+					continue;
+				}
+			
+				if (!switch_channel_test_flag(session->channel, CF_ANSWERED) && switch_core_media_bug_test_flag(bp, SMBF_ANSWER_REQ)) {
+					continue;
+				}
+				if (switch_test_flag(bp, SMBF_PRUNE)) {
+					prune++;
+					continue;
+				}
+			
+				if (bp->ready && (*frame)->codec && (*frame)->codec->implementation && (*frame)->codec->implementation->encoded_bytes_per_packet) {
+					if (switch_test_flag(bp, SMBF_TAP_NATIVE_READ)) {
+						if (bp->callback) {
+							switch_frame_t tmp_frame = {0};
+							unsigned char data[SWITCH_RECOMMENDED_BUFFER_SIZE] = {0};
+							
+							
+							tmp_frame.codec = (*frame)->codec;
+							tmp_frame.datalen = (*frame)->codec->implementation->encoded_bytes_per_packet;
+							tmp_frame.samples = (*frame)->codec->implementation->samples_per_packet;
+							tmp_frame.data = data;
+							
+							switch_core_gen_encoded_silence(data, (*frame)->codec->implementation, tmp_frame.datalen);
+							
+							bp->native_read_frame = &tmp_frame;
+							ok = bp->callback(bp, bp->user_data, SWITCH_ABC_TYPE_TAP_NATIVE_READ);
+							bp->native_read_frame = NULL;
+						}
+					}
+				}
+				
+				if ((bp->stop_time && bp->stop_time <= switch_epoch_time_now(NULL)) || ok == SWITCH_FALSE) {
+					switch_set_flag(bp, SMBF_PRUNE);
+					prune++;
+				}
+			}
+			switch_thread_rwlock_unlock(session->bug_rwlock);
+
+			if (prune) {
+				switch_core_media_bug_prune(session);
+			}
+			
+		
+		}
+
+
+		goto done;
+	} else if (session->bugs && !need_codec) {
 		do_bugs = 1;
 		need_codec = 1;
 	}
@@ -267,7 +411,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 			switch_core_session_t *other_session = NULL;
 			if (switch_channel_test_flag(switch_core_session_get_channel(session), CF_BRIDGED) &&
 				switch_core_session_get_partner(session, &other_session) == SWITCH_STATUS_SUCCESS) {
-				if (other_session->bugs) {
+				if (other_session->bugs && !switch_test_flag(other_session, SSF_MEDIA_BUG_TAP_ONLY)) {
 					other_session_bugs = 1;
 				}
 				switch_core_session_rwunlock(other_session);
@@ -286,7 +430,6 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 		do_bugs = 0;
 		need_codec = 0;
 	}
-
 
 	if (switch_test_flag(session, SSF_READ_TRANSCODE) && !need_codec && switch_core_codec_ready(session->read_codec)) {
 		switch_core_session_t *other_session;
@@ -307,10 +450,6 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 	}
 
 	
-
-
-
-
 	if (status == SWITCH_STATUS_SUCCESS && need_codec) {
 		switch_frame_t *enc_frame, *read_frame = *frame;
 
@@ -505,6 +644,8 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 			switch_thread_rwlock_rdlock(session->bug_rwlock);
 
 			for (bp = session->bugs; bp; bp = bp->next) {
+				ok = SWITCH_TRUE;
+
 				if (switch_channel_test_flag(session->channel, CF_PAUSE_BUGS) && !switch_core_media_bug_test_flag(bp, SMBF_NO_PAUSE)) {
 					continue;
 				}
@@ -512,6 +653,11 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 				if (!switch_channel_test_flag(session->channel, CF_ANSWERED) && switch_core_media_bug_test_flag(bp, SMBF_ANSWER_REQ)) {
 					continue;
 				}
+
+				if (!switch_channel_test_flag(session->channel, CF_BRIDGED) && switch_core_media_bug_test_flag(bp, SMBF_BRIDGE_REQ)) {
+					continue;
+				}
+
 				if (switch_test_flag(bp, SMBF_PRUNE)) {
 					prune++;
 					continue;
@@ -549,6 +695,8 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 			switch_thread_rwlock_rdlock(session->bug_rwlock);
 
 			for (bp = session->bugs; bp; bp = bp->next) {
+				ok = SWITCH_TRUE;
+
 				if (switch_channel_test_flag(session->channel, CF_PAUSE_BUGS) && !switch_core_media_bug_test_flag(bp, SMBF_NO_PAUSE)) {
 					continue;
 				}
@@ -556,6 +704,11 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 				if (!switch_channel_test_flag(session->channel, CF_ANSWERED) && switch_core_media_bug_test_flag(bp, SMBF_ANSWER_REQ)) {
 					continue;
 				}
+
+				if (!switch_channel_test_flag(session->channel, CF_BRIDGED) && switch_core_media_bug_test_flag(bp, SMBF_BRIDGE_REQ)) {
+					continue;
+				}
+
 				if (switch_test_flag(bp, SMBF_PRUNE)) {
 					prune++;
 					continue;
@@ -591,7 +744,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 			}
 		}
 
-		if (do_bugs) {
+		if (do_bugs || tap_only) {
 			goto done;
 		}
 
@@ -622,7 +775,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 					goto done;
 				}
 			}
-
+			
 			if (perfect || switch_buffer_inuse(session->raw_read_buffer) >= session->read_impl.decoded_bytes_per_packet) {
 				if (perfect) {
 					enc_frame = read_frame;
@@ -710,11 +863,17 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_read_frame(switch_core_sessi
 			int prune = 0;
 			switch_thread_rwlock_rdlock(session->bug_rwlock);
 			for (bp = session->bugs; bp; bp = bp->next) {
+				ok = SWITCH_TRUE;
+
 				if (switch_channel_test_flag(session->channel, CF_PAUSE_BUGS) && !switch_core_media_bug_test_flag(bp, SMBF_NO_PAUSE)) {
 					continue;
 				}
 
 				if (!switch_channel_test_flag(session->channel, CF_ANSWERED) && switch_core_media_bug_test_flag(bp, SMBF_ANSWER_REQ)) {
+					continue;
+				}
+
+				if (!switch_channel_test_flag(session->channel, CF_BRIDGED) && switch_core_media_bug_test_flag(bp, SMBF_BRIDGE_REQ)) {
 					continue;
 				}
 
@@ -767,8 +926,53 @@ static switch_status_t perform_write(switch_core_session_t *session, switch_fram
 	switch_io_event_hook_write_frame_t *ptr;
 	switch_status_t status = SWITCH_STATUS_FALSE;
 
-	if (session->endpoint_interface->io_routines->write_frame) {
 
+	if (session->bugs && !(frame->flags & SFF_NOT_AUDIO)) {
+		switch_media_bug_t *bp;
+		switch_bool_t ok = SWITCH_TRUE;
+		int prune = 0;
+
+		switch_thread_rwlock_rdlock(session->bug_rwlock);
+
+		for (bp = session->bugs; bp; bp = bp->next) {
+			ok = SWITCH_TRUE;
+
+			if (switch_channel_test_flag(session->channel, CF_PAUSE_BUGS) && !switch_core_media_bug_test_flag(bp, SMBF_NO_PAUSE)) {
+				continue;
+			}
+			
+			if (!switch_channel_test_flag(session->channel, CF_ANSWERED) && switch_core_media_bug_test_flag(bp, SMBF_ANSWER_REQ)) {
+				continue;
+			}
+			if (switch_test_flag(bp, SMBF_PRUNE)) {
+				prune++;
+				continue;
+			}
+			
+			if (bp->ready) {
+				if (switch_test_flag(bp, SMBF_TAP_NATIVE_WRITE)) {
+					if (bp->callback) {
+						bp->native_write_frame = frame;
+						ok = bp->callback(bp, bp->user_data, SWITCH_ABC_TYPE_TAP_NATIVE_WRITE);
+						bp->native_write_frame = NULL;
+					}
+				}
+			}
+			
+			if ((bp->stop_time && bp->stop_time <= switch_epoch_time_now(NULL)) || ok == SWITCH_FALSE) {
+				switch_set_flag(bp, SMBF_PRUNE);
+				prune++;
+			}
+		}
+		switch_thread_rwlock_unlock(session->bug_rwlock);
+
+		if (prune) {
+			switch_core_media_bug_prune(session);
+		}
+	}
+
+
+	if (session->endpoint_interface->io_routines->write_frame) {
 		if ((status = session->endpoint_interface->io_routines->write_frame(session, frame, flags, stream_id)) == SWITCH_STATUS_SUCCESS) {
 			for (ptr = session->event_hooks.write_frame; ptr; ptr = ptr->next) {
 				if ((status = ptr->write_frame(session, frame, flags, stream_id)) != SWITCH_STATUS_SUCCESS) {
@@ -870,7 +1074,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_write_frame(switch_core_sess
 		need_codec = TRUE;
 	}
 
-	if (session->bugs && !need_codec) {
+	if (session->bugs && !need_codec && !switch_test_flag(session, SSF_MEDIA_BUG_TAP_ONLY)) {
 		do_bugs = TRUE;
 		need_codec = TRUE;
 	}
@@ -1034,6 +1238,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_write_frame(switch_core_sess
 		switch_thread_rwlock_rdlock(session->bug_rwlock);
 		for (bp = session->bugs; bp; bp = bp->next) {
 			switch_bool_t ok = SWITCH_TRUE;
+
 			if (!bp->ready) {
 				continue;
 			}
@@ -1385,6 +1590,10 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_recv_dtmf(switch_core_sessio
 		return SWITCH_STATUS_FALSE;
 	}
 
+	if (switch_test_flag(dtmf, DTMF_FLAG_SENSITIVE)) {	
+		return SWITCH_STATUS_SUCCESS;
+	}
+
 	switch_assert(dtmf);
 
 	new_dtmf = *dtmf;
@@ -1402,7 +1611,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_recv_dtmf(switch_core_sessio
 	}
 	
 	if (!switch_test_flag(dtmf, DTMF_FLAG_SKIP_PROCESS)) {
-		if (session->dmachine[0] && !switch_channel_test_flag(session->channel, CF_BROADCAST)) {
+		if (session->dmachine[0]) {
 			char str[2] = { dtmf->digit, '\0' };
 			switch_ivr_dmachine_feed(session->dmachine[0], str, NULL);
 			fed = 1;
@@ -1426,6 +1635,10 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_send_dtmf(switch_core_sessio
 
 	if (switch_channel_down(session->channel)) {
 		return SWITCH_STATUS_FALSE;
+	}
+
+	if (switch_test_flag(dtmf, DTMF_FLAG_SENSITIVE)) {	
+		return SWITCH_STATUS_SUCCESS;
 	}
 
 	switch_assert(dtmf);
@@ -1454,8 +1667,7 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_send_dtmf(switch_core_sessio
 				return SWITCH_STATUS_SUCCESS;
 			}
 		}
-
-		if (session->dmachine[1] && !switch_channel_test_flag(session->channel, CF_BROADCAST)) {
+		if (session->dmachine[1]) {
 			char str[2] = { new_dtmf.digit, '\0' };
 			switch_ivr_dmachine_feed(session->dmachine[1], str, NULL);
 			return SWITCH_STATUS_SUCCESS;
@@ -1583,5 +1795,5 @@ SWITCH_DECLARE(switch_status_t) switch_core_session_send_dtmf_string(switch_core
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

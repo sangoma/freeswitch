@@ -4,9 +4,10 @@
 
 mod_dir="../src/mod"
 conf_dir="../conf"
+lang_dir="../conf/vanilla/lang"
 fs_description="FreeSWITCH is a scalable open source cross-platform telephony platform designed to route and interconnect popular communication protocols using audio, video, text or any other form of media."
-mod_build_depends="."
-supported_distros="squeeze wheezy sid"
+mod_build_depends="." mod_depends="." mod_recommends="." mod_suggests="."
+supported_distros="squeeze wheezy jessie sid"
 avoid_mods=(
   applications/mod_limit
   applications/mod_mongo
@@ -27,7 +28,6 @@ avoid_mods=(
   endpoints/mod_opal
   endpoints/mod_reference
   endpoints/mod_unicall
-  formats/mod_shout
   languages/mod_managed
   languages/mod_spidermonkey
   sdk/autotools
@@ -35,16 +35,38 @@ avoid_mods=(
   xml_int/mod_xml_radius
 )
 avoid_mods_sid=(
-  endpoints/mod_portaudio
-  formats/mod_portaudio_stream
+  languages/mod_java
+)
+avoid_mods_jessie=(
 )
 avoid_mods_wheezy=(
-  endpoints/mod_portaudio
-  formats/mod_portaudio_stream
 )
 avoid_mods_squeeze=(
   formats/mod_vlc
   languages/mod_managed
+)
+manual_pkgs=(
+freeswitch-all
+freeswitch
+libfreeswitch1
+freeswitch-meta-bare
+freeswitch-meta-default
+freeswitch-meta-vanilla
+freeswitch-meta-sorbet
+freeswitch-meta-all
+freeswitch-meta-codecs
+freeswitch-meta-conf
+freeswitch-meta-lang
+freeswitch-meta-mod-say
+freeswitch-all-dbg
+freeswitch-dbg
+libfreeswitch1-dbg
+libfreeswitch-dev
+freeswitch-doc
+freeswitch-init
+freeswitch-sysvinit
+freeswitch-systemd
+freeswitch-lang
 )
 
 err () {
@@ -59,6 +81,31 @@ xread () {
   local ret=$?
   IFS="$xIFS"
   return $ret
+}
+
+intersperse () {
+  local sep="$1"
+  awk "
+    BEGIN {
+      first=1;
+      sep=\"${sep}\";
+    }"'
+    /.*/ {
+      if (first == 0) {
+        printf "%s%s", sep, $0;
+      } else {
+        printf "%s", $0;
+      }
+      first=0;
+    }
+    END { printf "\n"; }'
+}
+
+postfix () {
+  local px="$1"
+  awk "
+    BEGIN { px=\"${px}\"; }"'
+    /.*/ { printf "%s%s\n", $0, px; }'
 }
 
 avoid_mod_filter () {
@@ -98,20 +145,20 @@ mod_filter_show () {
 map_fs_modules () {
   local filterfn="$1" percatfns="$2" permodfns="$3"
   for x in $mod_dir/*; do
-    if test -d $x; then
-      category=${x##*/} category_path=$x
-      for f in $percatfns; do $f; done
-      for y in $x/*; do
-        module_name=${y##*/} module_path=$y
-        module=$category/$module_name
-        if $filterfn $category/$module; then
-          [ -f ${y}/module ] && . ${y}/module
-          for f in $permodfns; do $f; done
-        fi
-        unset module_name module_path module
-      done
-      unset category category_path
-    fi
+    test -d $x || continue
+    test ! ${x##*/} = legacy || continue
+    category=${x##*/} category_path=$x
+    for f in $percatfns; do $f; done
+    for y in $x/*; do
+      module_name=${y##*/} module_path=$y
+      module=$category/$module_name
+      if $filterfn $category/$module; then
+        [ -f ${y}/module ] && . ${y}/module
+        for f in $permodfns; do $f; done
+      fi
+      unset module_name module_path module
+    done
+    unset category category_path
   done
 }
 
@@ -158,6 +205,70 @@ map_confs () {
   done
 }
 
+map_langs () {
+  local fs="$1"
+  for x in $lang_dir/*; do
+    test ! -d $x && continue
+    lang=${x##*/} lang_dir=$x
+    for f in $fs; do $f; done
+    unset lang lang_dir
+  done
+}
+
+map_pkgs () {
+  local fsx="$1"
+  for x in "${manual_pkgs[@]}"; do
+    $fsx $x
+  done
+  map_pkgs_confs () { $fsx "freeswitch-conf-${conf//_/-}"; }
+  map_confs map_pkgs_confs
+  map_pkgs_langs () { $fsx "freeswitch-lang-${lang//_/-}"; }
+  map_langs map_pkgs_langs
+  map_pkgs_mods () {
+    $fsx "freeswitch-${module//_/-}"
+    $fsx "freeswitch-${module//_/-}-dbg"; }
+  map_modules map_pkgs_mods
+}
+
+list_pkgs () {
+  list_pkgs_thunk () { printf '%s\n' "$1"; }
+  map_pkgs list_pkgs_thunk
+}
+
+list_freeswitch_all_pkgs () {
+  list_pkgs \
+    | grep -v '^freeswitch-all$' \
+    | grep -v -- '-dbg$'
+}
+
+list_freeswitch_all_provides () {
+  list_freeswitch_all_pkgs \
+    | intersperse ',\n '
+}
+
+list_freeswitch_all_replaces () {
+  list_freeswitch_all_pkgs \
+    | postfix ' (<= ${binary:Version})' \
+    | intersperse ',\n '
+}
+
+list_freeswitch_all_dbg_pkgs () {
+  list_pkgs \
+    | grep -v '^freeswitch-all-dbg$' \
+    | grep -- '-dbg$'
+}
+
+list_freeswitch_all_dbg_provides () {
+  list_freeswitch_all_dbg_pkgs \
+    | intersperse ',\n '
+}
+
+list_freeswitch_all_dbg_replaces () {
+  list_freeswitch_all_dbg_pkgs \
+    | postfix ' (<= ${binary:Version})' \
+    | intersperse ',\n '
+}
+
 print_source_control () {
 cat <<EOF
 Source: freeswitch
@@ -170,7 +281,7 @@ Build-Depends:
 # bootstrapping
  automake (>= 1.9), autoconf, libtool,
 # core build
- dpkg-dev (>= 1.15.8.12), gcc (>= 4:4.4.5) , g++ (>= 4:4.4.5),
+ dpkg-dev (>= 1.15.8.12), gcc (>= 4:4.4.5), g++ (>= 4:4.4.5),
  libc6-dev (>= 2.11.3), make (>= 3.81),
  wget, pkg-config,
 # configure options
@@ -195,6 +306,24 @@ EOF
 
 print_core_control () {
 cat <<EOF
+Package: freeswitch-all
+Architecture: any
+Provides: $(list_freeswitch_all_provides)
+Replaces: $(list_freeswitch_all_replaces)
+Conflicts: $(list_freeswitch_all_replaces)
+Depends: \${shlibs:Depends}, \${perl:Depends}, \${misc:Depends},
+ freeswitch-music-default (>= 1.0.8),
+ freeswitch-sounds-en-us-callie (>= 1.0.25) | freeswitch-sounds,
+ $(debian_wrap "${mod_depends}")
+Recommends:
+ $(debian_wrap "${mod_recommends}")
+Suggests: freeswitch-all-dbg,
+ $(debian_wrap "${mod_suggests}")
+Description: Cross-Platform Scalable Multi-Protocol Soft Switch
+ $(debian_wrap "${fs_description}")
+ .
+ This package contains FreeSWITCH and all modules and extras.
+
 Package: freeswitch
 Architecture: any
 Depends: \${shlibs:Depends}, \${perl:Depends}, \${misc:Depends},
@@ -223,8 +352,9 @@ Recommends:
  freeswitch-doc (= \${binary:Version}),
  freeswitch-mod-commands (= \${binary:Version}),
  freeswitch-init (= \${binary:Version}),
- freeswitch-music (= \${binary:Version}),
- freeswitch-sounds (= \${binary:Version})
+ freeswitch-lang (= \${binary:Version}),
+ freeswitch-music,
+ freeswitch-sounds
 Suggests:
 Description: Cross-Platform Scalable Multi-Protocol Soft Switch
  $(debian_wrap "${fs_description}")
@@ -248,15 +378,17 @@ Depends: \${misc:Depends}, freeswitch (= \${binary:Version}),
  freeswitch-mod-sofia (= \${binary:Version}),
  freeswitch-mod-local-stream (= \${binary:Version}),
  freeswitch-mod-native-file (= \${binary:Version}),
+ freeswitch-mod-sndfile (= \${binary:Version}),
  freeswitch-mod-tone-stream (= \${binary:Version}),
  freeswitch-mod-lua (= \${binary:Version}),
  freeswitch-mod-console (= \${binary:Version}),
  freeswitch-mod-say-en (= \${binary:Version})
 Recommends:
  freeswitch-init (= \${binary:Version}),
+ freeswitch-lang (= \${binary:Version}),
  freeswitch-meta-codecs (= \${binary:Version}),
- freeswitch-music (= \${binary:Version}),
- freeswitch-sounds (= \${binary:Version})
+ freeswitch-music,
+ freeswitch-sounds
 Suggests:
  freeswitch-mod-cidlookup (= \${binary:Version}),
  freeswitch-mod-curl (= \${binary:Version}),
@@ -309,8 +441,9 @@ Depends: \${misc:Depends}, freeswitch (= \${binary:Version}),
  freeswitch-mod-say-en (= \${binary:Version}),
 Recommends:
  freeswitch-init (= \${binary:Version}),
- freeswitch-music (= \${binary:Version}),
- freeswitch-sounds (= \${binary:Version}),
+ freeswitch-lang (= \${binary:Version}),
+ freeswitch-music,
+ freeswitch-sounds,
  freeswitch-conf-vanilla (= \${binary:Version}),
 Suggests:
  freeswitch-mod-spidermonkey (= \${binary:Version}),
@@ -325,9 +458,10 @@ Architecture: any
 Depends: \${misc:Depends}, freeswitch (= \${binary:Version}),
 Recommends:
  freeswitch-init (= \${binary:Version}),
+ freeswitch-lang (= \${binary:Version}),
  freeswitch-meta-codecs (= \${binary:Version}),
- freeswitch-music (= \${binary:Version}),
- freeswitch-sounds (= \${binary:Version}),
+ freeswitch-music,
+ freeswitch-sounds,
  freeswitch-mod-abstraction (= \${binary:Version}),
  freeswitch-mod-avmd (= \${binary:Version}),
  freeswitch-mod-blacklist (= \${binary:Version}),
@@ -369,6 +503,7 @@ Recommends:
  freeswitch-mod-vmd (= \${binary:Version}),
  freeswitch-mod-voicemail (= \${binary:Version}),
  freeswitch-mod-voicemail-ivr (= \${binary:Version}),
+ freeswitch-mod-flite (= \${binary:Version}),
  freeswitch-mod-pocketsphinx (= \${binary:Version}),
  freeswitch-mod-tts-commandline (= \${binary:Version}),
  freeswitch-mod-dialplan-xml (= \${binary:Version}),
@@ -406,9 +541,13 @@ Architecture: any
 Depends: \${misc:Depends}, freeswitch (= \${binary:Version}),
 Recommends:
  freeswitch-init (= \${binary:Version}),
+ freeswitch-lang (= \${binary:Version}),
  freeswitch-meta-codecs (= \${binary:Version}),
- freeswitch-music (= \${binary:Version}),
- freeswitch-sounds (= \${binary:Version}),
+ freeswitch-meta-conf (= \${binary:Version}),
+ freeswitch-meta-lang (= \${binary:Version}),
+ freeswitch-meta-mod-say (= \${binary:Version}),
+ freeswitch-music,
+ freeswitch-sounds,
  freeswitch-mod-abstraction (= \${binary:Version}),
  freeswitch-mod-avmd (= \${binary:Version}),
  freeswitch-mod-blacklist (= \${binary:Version}),
@@ -450,12 +589,15 @@ Recommends:
  freeswitch-mod-spandsp (= \${binary:Version}),
  freeswitch-mod-spy (= \${binary:Version}),
  freeswitch-mod-stress (= \${binary:Version}),
+ freeswitch-mod-translate (= \${binary:Version}),
  freeswitch-mod-valet-parking (= \${binary:Version}),
  freeswitch-mod-vmd (= \${binary:Version}),
  freeswitch-mod-voicemail (= \${binary:Version}),
  freeswitch-mod-voicemail-ivr (= \${binary:Version}),
+ freeswitch-mod-flite (= \${binary:Version}),
  freeswitch-mod-pocketsphinx (= \${binary:Version}),
  freeswitch-mod-tts-commandline (= \${binary:Version}),
+ freeswitch-mod-unimrcp (= \${binary:Version}),
  freeswitch-mod-dialplan-asterisk (= \${binary:Version}),
  freeswitch-mod-dialplan-directory (= \${binary:Version}),
  freeswitch-mod-dialplan-xml (= \${binary:Version}),
@@ -464,8 +606,10 @@ Recommends:
  freeswitch-mod-dingaling (= \${binary:Version}),
  freeswitch-mod-html5 (= \${binary:Version}),
  freeswitch-mod-loopback (= \${binary:Version}),
+ freeswitch-mod-portaudio (= \${binary:Version}),
  freeswitch-mod-rtmp (= \${binary:Version}),
  freeswitch-mod-skinny (= \${binary:Version}),
+ freeswitch-mod-skypopen (= \${binary:Version}),
  freeswitch-mod-sofia (= \${binary:Version}),
  freeswitch-mod-cdr-csv (= \${binary:Version}),
  freeswitch-mod-cdr-mongodb (= \${binary:Version}),
@@ -481,6 +625,7 @@ Recommends:
  freeswitch-mod-snmp (= \${binary:Version}),
  freeswitch-mod-local-stream (= \${binary:Version}),
  freeswitch-mod-native-file (= \${binary:Version}),
+ freeswitch-mod-portaudio-stream (= \${binary:Version}),
  freeswitch-mod-shell-stream (= \${binary:Version}),
  freeswitch-mod-sndfile (= \${binary:Version}),
  freeswitch-mod-tone-stream (= \${binary:Version}),
@@ -492,7 +637,6 @@ Recommends:
  freeswitch-mod-console (= \${binary:Version}),
  freeswitch-mod-logfile (= \${binary:Version}),
  freeswitch-mod-syslog (= \${binary:Version}),
- freeswitch-mod-say-en (= \${binary:Version}),
  freeswitch-mod-posix-timer (= \${binary:Version}),
  freeswitch-mod-timerfd (= \${binary:Version}),
  freeswitch-mod-xml-cdr (= \${binary:Version}),
@@ -501,20 +645,6 @@ Recommends:
  freeswitch-mod-xml-scgi (= \${binary:Version}),
 Suggests:
  freeswitch-mod-vlc (= \${binary:Version}),
- freeswitch-mod-say-de (= \${binary:Version}),
- freeswitch-mod-say-es (= \${binary:Version}),
- freeswitch-mod-say-fa (= \${binary:Version}),
- freeswitch-mod-say-fr (= \${binary:Version}),
- freeswitch-mod-say-he (= \${binary:Version}),
- freeswitch-mod-say-hr (= \${binary:Version}),
- freeswitch-mod-say-hu (= \${binary:Version}),
- freeswitch-mod-say-it (= \${binary:Version}),
- freeswitch-mod-say-ja (= \${binary:Version}),
- freeswitch-mod-say-nl (= \${binary:Version}),
- freeswitch-mod-say-pt (= \${binary:Version}),
- freeswitch-mod-say-ru (= \${binary:Version}),
- freeswitch-mod-say-th (= \${binary:Version}),
- freeswitch-mod-say-zh (= \${binary:Version}),
 Description: Cross-Platform Scalable Multi-Protocol Soft Switch
  $(debian_wrap "${fs_description}")
  .
@@ -526,9 +656,11 @@ Architecture: any
 Depends: \${misc:Depends}, freeswitch (= \${binary:Version}),
  freeswitch-mod-amr (= \${binary:Version}),
  freeswitch-mod-amrwb (= \${binary:Version}),
+ freeswitch-mod-b64 (= \${binary:Version}),
  freeswitch-mod-bv (= \${binary:Version}),
  freeswitch-mod-celt (= \${binary:Version}),
  freeswitch-mod-codec2 (= \${binary:Version}),
+ freeswitch-mod-dahdi-codec (= \${binary:Version}),
  freeswitch-mod-g723-1 (= \${binary:Version}),
  freeswitch-mod-g729 (= \${binary:Version}),
  freeswitch-mod-h26x (= \${binary:Version}),
@@ -548,6 +680,74 @@ Description: Cross-Platform Scalable Multi-Protocol Soft Switch
  .
  This is a metapackage which depends on the packages needed to install
  most FreeSWITCH codecs.
+
+Package: freeswitch-meta-conf
+Architecture: all
+Depends: \${misc:Depends},
+ freeswitch-conf-curl (= \${binary:Version}),
+ freeswitch-conf-insideout (= \${binary:Version}),
+ freeswitch-conf-sbc (= \${binary:Version}),
+ freeswitch-conf-softphone (= \${binary:Version}),
+ freeswitch-conf-vanilla (= \${binary:Version}),
+Description: Cross-Platform Scalable Multi-Protocol Soft Switch
+ $(debian_wrap "${fs_description}")
+ .
+ This is a metapackage which depends on the available configuration
+ examples for FreeSWITCH.
+
+Package: freeswitch-meta-lang
+Architecture: all
+Depends: \${misc:Depends},
+ freeswitch-lang-de (= \${binary:Version}),
+ freeswitch-lang-en (= \${binary:Version}),
+ freeswitch-lang-es (= \${binary:Version}),
+ freeswitch-lang-fr (= \${binary:Version}),
+ freeswitch-lang-he (= \${binary:Version}),
+ freeswitch-lang-pt (= \${binary:Version}),
+ freeswitch-lang-ru (= \${binary:Version}),
+Description: Cross-Platform Scalable Multi-Protocol Soft Switch
+ $(debian_wrap "${fs_description}")
+ .
+ This is a metapackage which depends on all language files for
+ FreeSWITCH.
+
+Package: freeswitch-meta-mod-say
+Architecture: any
+Depends: \${misc:Depends},
+ freeswitch-mod-say-de (= \${binary:Version}),
+ freeswitch-mod-say-en (= \${binary:Version}),
+ freeswitch-mod-say-es (= \${binary:Version}),
+ freeswitch-mod-say-fa (= \${binary:Version}),
+ freeswitch-mod-say-fr (= \${binary:Version}),
+ freeswitch-mod-say-he (= \${binary:Version}),
+ freeswitch-mod-say-hr (= \${binary:Version}),
+ freeswitch-mod-say-hu (= \${binary:Version}),
+ freeswitch-mod-say-it (= \${binary:Version}),
+ freeswitch-mod-say-ja (= \${binary:Version}),
+ freeswitch-mod-say-nl (= \${binary:Version}),
+ freeswitch-mod-say-pl (= \${binary:Version}),
+ freeswitch-mod-say-pt (= \${binary:Version}),
+ freeswitch-mod-say-ru (= \${binary:Version}),
+ freeswitch-mod-say-th (= \${binary:Version}),
+ freeswitch-mod-say-zh (= \${binary:Version}),
+Description: Cross-Platform Scalable Multi-Protocol Soft Switch
+ $(debian_wrap "${fs_description}")
+ .
+ This is a metapackage which depends on all mod_say languages for
+ FreeSWITCH.
+
+Package: freeswitch-all-dbg
+Section: debug
+Priority: extra
+Architecture: any
+Provides: $(list_freeswitch_all_dbg_provides)
+Replaces: $(list_freeswitch_all_dbg_replaces)
+Breaks: $(list_freeswitch_all_dbg_replaces)
+Depends: \${misc:Depends}, freeswitch-all (= \${binary:Version})
+Description: debugging symbols for FreeSWITCH
+ $(debian_wrap "${fs_description}")
+ .
+ This package contains debugging symbols for FreeSWITCH.
 
 Package: freeswitch-dbg
 Section: debug
@@ -617,47 +817,17 @@ Description: FreeSWITCH systemd configuration
 
 ## misc
 
-## sounds
+## languages
 
-Package: freeswitch-music
+Package: freeswitch-lang
 Architecture: all
 Depends: \${misc:Depends},
- freeswitch-music-default (>= 1.0.8)
-Description: Music on hold audio for FreeSWITCH
+ freeswitch-lang-en (= \${binary:Version})
+Description: Language files for FreeSWITCH
  $(debian_wrap "${fs_description}")
  .
- This is a metapackage which depends on the default music on hold
- packages for FreeSWITCH.
-
-Package: freeswitch-sounds
-Architecture: all
-Depends: \${misc:Depends},
- freeswitch-sounds-en (= \${binary:Version})
-Description: Sounds for FreeSWITCH
- $(debian_wrap "${fs_description}")
- .
- This is a metapackage which depends on the default sound packages for
- FreeSWITCH.
-
-Package: freeswitch-sounds-en
-Architecture: all
-Depends: \${misc:Depends},
- freeswitch-sounds-en-us (= \${binary:Version})
-Description: English sounds for FreeSWITCH
- $(debian_wrap "${fs_description}")
- .
- This is a metapackage which depends on the default English sound
- packages for FreeSWITCH.
-
-Package: freeswitch-sounds-en-us
-Architecture: all
-Depends: \${misc:Depends},
- freeswitch-sounds-en-us-callie (>= 1.0.18)
-Description: US English sounds for FreeSWITCH
- $(debian_wrap "${fs_description}")
- .
- This is a metapackage which depends on the default US/English sound
- packages for FreeSWITCH.
+ This is a metapackage which depends on the default language packages
+ for FreeSWITCH.
 
 EOF
 }
@@ -668,7 +838,7 @@ print_mod_control () {
 Package: freeswitch-${module_name//_/-}
 Section: ${m_section}
 Architecture: any
-$(debian_wrap "Depends: \${shlibs:Depends}, \${misc:Depends}, freeswitch, ${depends}")
+$(debian_wrap "Depends: \${shlibs:Depends}, \${misc:Depends}, libfreeswitch1 (= \${binary:Version}), ${depends}")
 $(debian_wrap "Recommends: ${recommends}")
 $(debian_wrap "Suggests: freeswitch-${module_name//_/-}-dbg, ${suggests}")
 Description: ${description} for FreeSWITCH
@@ -762,12 +932,46 @@ conf/${conf} /usr/share/freeswitch/conf
 EOF
 }
 
+print_lang_overrides () {
+  print_common_overrides "$1"
+}
+
+print_lang_control () {
+  local lang_name="$(echo ${lang} | tr '[:lower:]' '[:upper:]')"
+  case "${lang}" in
+    de) lang_name="German" ;;
+    en) lang_name="English" ;;
+    es) lang_name="Spanish" ;;
+    fr) lang_name="French" ;;
+    he) lang_name="Hebrew" ;;
+    pt) lang_name="Portuguese" ;;
+    ru) lang_name="Russian" ;;
+  esac
+  cat <<EOF
+Package: freeswitch-lang-${lang//_/-}
+Architecture: all
+Depends: \${misc:Depends}
+Recommends: freeswitch-sounds-${lang}
+Description: ${lang_name} language files for FreeSWITCH
+ $(debian_wrap "${fs_description}")
+ .
+ $(debian_wrap "This package includes the ${lang_name} language files for FreeSWITCH.")
+
+EOF
+}
+
+print_lang_install () {
+  cat <<EOF
+conf/vanilla/lang/${lang} /usr/share/freeswitch/lang
+EOF
+}
+
 print_edit_warning () {
   echo "#### Do not edit!  This file is auto-generated from debian/bootstrap.sh."; echo
 }
 
 gencontrol_per_mod () {
-  print_mod_control "$module_name" "$description" "$long_description" >> control  
+  print_mod_control "$module_name" "$description" "$long_description" >> control
 }
 
 gencontrol_per_cat () {
@@ -777,6 +981,7 @@ gencontrol_per_cat () {
 geninstall_per_mod () {
   local f=freeswitch-${module_name//_/-}.install
   (print_edit_warning; print_mod_install "$module_name") > $f
+  print_mod_install "$module_name" >> freeswitch-all.install
   test -f $f.tmpl && cat $f.tmpl >> $f
 }
 
@@ -786,12 +991,11 @@ genoverrides_per_mod () {
   test -f $f.tmpl && cat $f.tmpl >> $f
 }
 
-genmodules_per_cat () {
-  echo "## $category" >> modules_.conf
-}
-
-genmodules_per_mod () {
-  echo "$module" >> modules_.conf
+genmodulesconf () {
+  genmodules_per_cat () { echo "## $category"; }
+  genmodules_per_mod () { echo "$module"; }
+  print_edit_warning
+  map_modules 'mod_filter' 'genmodules_per_cat' 'genmodules_per_mod'
 }
 
 genconf () {
@@ -799,26 +1003,62 @@ genconf () {
   local p=freeswitch-conf-${conf//_/-}
   local f=$p.install
   (print_edit_warning; print_conf_install) > $f
+  print_conf_install >> freeswitch-all.install
   test -f $f.tmpl && cat $f.tmpl >> $f
   local f=$p.lintian-overrides
   (print_edit_warning; print_conf_overrides "$p") > $f
   test -f $f.tmpl && cat $f.tmpl >> $f
 }
 
-accumulate_build_depends () {
+genlang () {
+  print_lang_control >> control
+  local p=freeswitch-lang-${lang//_/-}
+  local f=$p.install
+  (print_edit_warning; print_lang_install) > $f
+  print_lang_install >> freeswitch-all.install
+  test -f $f.tmpl && cat $f.tmpl >> $f
+  local f=$p.lintian-overrides
+  (print_edit_warning; print_lang_overrides "$p") > $f
+  test -f $f.tmpl && cat $f.tmpl >> $f
+}
+
+accumulate_mod_deps () {
   local x=""
+  # build-depends
   if [ -n "$(eval echo \$build_depends_$codename)" ]; then
     x="$(eval echo \$build_depends_$codename)"
-  else
-    x="${build_depends}"
-  fi
+  else x="${build_depends}"; fi
   if [ -n "$x" ]; then
     if [ ! "$mod_build_depends" = "." ]; then
       mod_build_depends="${mod_build_depends}, ${x}"
-    else
-      mod_build_depends="${x}"
-    fi
-  fi
+    else mod_build_depends="${x}"; fi; fi
+  # depends
+  if [ -n "$(eval echo \$depends_$codename)" ]; then
+    x="$(eval echo \$depends_$codename)"
+  else x="${depends}"; fi
+  x="$(echo "$x" | sed 's/, \?/\n/g' | grep -v '^freeswitch' | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
+  if [ -n "$x" ]; then
+    if [ ! "$mod_depends" = "." ]; then
+      mod_depends="${mod_depends}, ${x}"
+    else mod_depends="${x}"; fi; fi
+  # recommends
+  if [ -n "$(eval echo \$recommends_$codename)" ]; then
+    x="$(eval echo \$recommends_$codename)"
+  else x="${recommends}"; fi
+  x="$(echo "$x" | sed 's/, \?/\n/g' | grep -v '^freeswitch' | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
+  if [ -n "$x" ]; then
+    if [ ! "$mod_recommends" = "." ]; then
+      mod_recommends="${mod_recommends}, ${x}"
+    else mod_recommends="${x}"; fi; fi
+  # suggests
+  if [ -n "$(eval echo \$suggests_$codename)" ]; then
+    x="$(eval echo \$suggests_$codename)"
+  else x="${suggests}"; fi
+  x="$(echo "$x" | sed 's/, \?/\n/g' | grep -v '^freeswitch' | tr '\n' ',' | sed -e 's/,$//' -e 's/,/, /g')"
+  if [ -n "$x" ]; then
+    if [ ! "$mod_suggests" = "." ]; then
+      mod_suggests="${mod_suggests}, ${x}"
+    else mod_suggests="${x}"; fi; fi
 }
 
 genmodctl_new_mod () {
@@ -944,10 +1184,35 @@ genmodctl_mod () {
   echo
 }
 
+set_modules_non_dfsg () {
+  local len=${#avoid_mods}
+  for ((i=0; i<len; i++)); do
+    case "${avoid_mods[$i]}" in
+      codecs/mod_siren|codecs/mod_ilbc)
+        unset avoid_mods[$i]
+        ;;
+    esac
+  done
+}
+
+conf_merge () {
+  local of="$1" if="$2"
+  if [ -s $if ]; then
+    grep -v '^##\|^$' $if | while xread x; do
+      touch $of
+      if ! grep -e "$x" $of >/dev/null; then
+        printf '%s\n' "$x" >> $of
+      fi
+    done
+  fi
+}
+
 codename="sid"
-while getopts "c:" o; do
+modulelist_opt=""
+while getopts "c:m:" o; do
   case "$o" in
     c) codename="$OPTARG" ;;
+    m) modulelist_opt="$OPTARG" ;;
   esac
 done
 shift $(($OPTIND-1))
@@ -956,6 +1221,8 @@ echo "Bootstrapping debian/ for ${codename}" >&2
 echo >&2
 echo "Please wait, this takes a few seconds..." >&2
 
+test -z "$modulelist_opt" || set_modules_${modulelist_opt/-/_}
+
 echo "Adding any new modules to control-modules..." >&2
 parse_dir=control-modules.parse
 map_fs_modules ':' 'genmodctl_new_cat' 'genmodctl_new_mod' >> control-modules
@@ -963,26 +1230,45 @@ echo "Parsing control-modules..." >&2
 parse_mod_control
 echo "Displaying includes/excludes..." >&2
 map_modules 'mod_filter_show' '' ''
+echo "Generating modules_.conf..." >&2
+genmodulesconf > modules_.conf
 echo "Generating control-modules.gen as sanity check..." >&2
 (echo "# -*- mode:debian-control -*-"; \
   echo "##### Author: Travis Cross <tc@traviscross.com>"; echo; \
   map_modules ':' 'genmodctl_cat' 'genmodctl_mod' \
   ) > control-modules.gen
 
-echo "Accumulating build dependencies from modules..." >&2
-map_modules 'mod_filter' '' 'accumulate_build_depends'
+echo "Accumulating dependencies from modules..." >&2
+map_modules 'mod_filter' '' 'accumulate_mod_deps'
 echo "Generating debian/..." >&2
 > control
+> freeswitch-all.install
+(print_edit_warning; print_mod_overrides "freeswitch-all") \
+  > freeswitch-all.lintian-overrides
 (print_edit_warning; print_source_control; print_core_control) >> control
 echo "Generating debian/ (conf)..." >&2
 (echo "### conf"; echo) >> control
 map_confs 'genconf'
+echo "Generating debian/ (lang)..." >&2
+(echo "### lang"; echo) >> control
+map_langs 'genlang'
 echo "Generating debian/ (modules)..." >&2
 (echo "### modules"; echo) >> control
-print_edit_warning > modules_.conf
 map_modules "mod_filter" \
-  "gencontrol_per_cat genmodules_per_cat" \
-  "gencontrol_per_mod geninstall_per_mod genoverrides_per_mod genmodules_per_mod"
+  "gencontrol_per_cat" \
+  "gencontrol_per_mod geninstall_per_mod genoverrides_per_mod"
+echo "Generating debian/ (-all package)..." >&2
+grep -e '^Package:' control | grep -v '^freeswitch-all$' | while xread l; do
+  m="${l#*: }"
+  conf_merge freeswitch-all.install $m.install
+done
+for x in postinst postrm preinst prerm; do
+  cp -a freeswitch.$x freeswitch-all.$x
+done
+cp -a freeswitch-doc.docs freeswitch-all.docs
+#cp -a freeswitch-systemd.freeswitch.service freeswitch-all.freeswitch.service
+cp -a freeswitch-sysvinit.freeswitch.default freeswitch-all.freeswitch.default
+cp -a freeswitch-sysvinit.freeswitch.init freeswitch-all.freeswitch.init
 
 echo "Generating additional lintian overrides..." >&2
 grep -e '^Package:' control | while xread l; do

@@ -172,7 +172,7 @@ static switch_xml_config_item_t instructions[] = {
 									 "EMERGENCY|ALERT|CRITICAL|ERROR|WARNING|NOTICE|INFO|DEBUG", "Logging level for UniMRCP"),
 	SWITCH_CONFIG_ITEM_STRING_STRDUP("enable-profile-events", CONFIG_REQUIRED, &globals.enable_profile_events_param, "false", "",
 									 "Fire profile events (true|false)"),
-	SWITCH_CONFIG_ITEM_STRING_STRDUP("request-timeout", CONFIG_REQUIRED, &globals.unimrcp_request_timeout, "10000", "", 
+	SWITCH_CONFIG_ITEM_STRING_STRDUP("request-timeout", CONFIG_REQUIRED, &globals.unimrcp_request_timeout, "10000", "",
 									 "Maximum time to wait for server response to a request"),
 	SWITCH_CONFIG_ITEM_END()
 };
@@ -273,7 +273,8 @@ static switch_status_t audio_queue_destroy(audio_queue_t *queue);
  * SPEECH_CHANNEL : speech functions common to recognizer and synthesizer
  */
 
-#define SPEECH_CHANNEL_TIMEOUT_USEC (5 * 1000000)
+#define SPEECH_CHANNEL_TIMEOUT_USEC (5000 * 1000)
+#define AUDIO_TIMEOUT_USEC (SWITCH_MAX_INTERVAL * 1000)
 
 /**
  * Type of MRCP channel
@@ -439,6 +440,9 @@ static const char *grammar_type_to_mime(grammar_type_t type, profile_t *profile)
  * RECOGNIZER : UniMRCP <--> FreeSWITCH asr interface
  */
 
+#define START_OF_INPUT_RECEIVED 1
+#define START_OF_INPUT_REPORTED 2
+
 /**
  * Data specific to the recognizer
  */
@@ -449,6 +453,8 @@ struct recognizer_data {
 	switch_hash_t *enabled_grammars;
 	/** recognize result */
 	char *result;
+	/** recognize result headers */
+	switch_event_t *result_headers;
 	/** true, if voice has started */
 	int start_of_input;
 	/** true, if input timers have started */
@@ -482,6 +488,7 @@ static switch_status_t recog_asr_resume(switch_asr_handle_t *ah);
 static switch_status_t recog_asr_pause(switch_asr_handle_t *ah);
 static switch_status_t recog_asr_check_results(switch_asr_handle_t *ah, switch_asr_flag_t *flags);
 static switch_status_t recog_asr_get_results(switch_asr_handle_t *ah, char **xmlstr, switch_asr_flag_t *flags);
+static switch_status_t recog_asr_get_result_headers(switch_asr_handle_t *ah, switch_event_t **headers, switch_asr_flag_t *flags);
 static switch_status_t recog_asr_start_input_timers(switch_asr_handle_t *ah);
 static void recog_asr_text_param(switch_asr_handle_t *ah, char *param, const char *val);
 static void recog_asr_numeric_param(switch_asr_handle_t *ah, char *param, int val);
@@ -504,7 +511,9 @@ static switch_status_t recog_channel_check_results(speech_channel_t *schannel);
 static switch_status_t recog_channel_set_start_of_input(speech_channel_t *schannel);
 static switch_status_t recog_channel_start_input_timers(speech_channel_t *schannel);
 static switch_status_t recog_channel_set_results(speech_channel_t *schannel, const char *results);
+static switch_status_t recog_channel_set_result_headers(speech_channel_t *schannel, mrcp_recog_header_t *recog_hdr);
 static switch_status_t recog_channel_get_results(speech_channel_t *schannel, char **results);
+static switch_status_t recog_channel_get_result_headers(speech_channel_t *schannel, switch_event_t **result_headers);
 static switch_status_t recog_channel_set_params(speech_channel_t *schannel, mrcp_message_t *msg, mrcp_generic_header_t *gen_hdr,
 												mrcp_recog_header_t *recog_hdr);
 static switch_status_t recog_channel_set_header(speech_channel_t *schannel, int id, char *val, mrcp_message_t *msg, mrcp_recog_header_t *recog_hdr);
@@ -725,11 +734,18 @@ static switch_status_t audio_queue_read(audio_queue_t *queue, void *data, switch
 #endif
 	switch_mutex_lock(queue->mutex);
 
+	/* allow the initial frame to buffer */
+	if (!queue->read_bytes && switch_buffer_inuse(queue->buffer) < requested) {
+		*data_len = 0;
+		status = SWITCH_STATUS_SUCCESS;
+		goto done;
+	}
+
 	/* wait for data, if allowed */
 	if (block) {
 		while (switch_buffer_inuse(queue->buffer) < requested) {
 			queue->waiting = requested;
-			if (switch_thread_cond_timedwait(queue->cond, queue->mutex, SPEECH_CHANNEL_TIMEOUT_USEC) == SWITCH_STATUS_TIMEOUT) {
+			if (switch_thread_cond_timedwait(queue->cond, queue->mutex, AUDIO_TIMEOUT_USEC) == SWITCH_STATUS_TIMEOUT) {
 				break;
 			}
 		}
@@ -774,6 +790,9 @@ static switch_status_t audio_queue_clear(audio_queue_t *queue)
 	switch_buffer_zero(queue->buffer);
 	switch_thread_cond_signal(queue->cond);
 	switch_mutex_unlock(queue->mutex);
+	queue->read_bytes = 0;
+	queue->write_bytes = 0;
+	queue->waiting = 0;
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -2145,9 +2164,9 @@ static switch_status_t recog_channel_start(speech_channel_t *schannel)
 	recognizer_data_t *r;
 	char *start_input_timers;
 	const char *mime_type;
-	char *key;
+	char *key = NULL;
 	switch_size_t len;
-	grammar_t *grammar;
+	grammar_t *grammar = NULL;
 	switch_size_t grammar_uri_count = 0;
 	switch_size_t grammar_uri_list_len = 0;
 	char *grammar_uri_list = NULL;
@@ -2165,6 +2184,9 @@ static switch_status_t recog_channel_start(speech_channel_t *schannel)
 	}
 	r = (recognizer_data_t *) schannel->data;
 	r->result = NULL;
+	if (r->result_headers) {
+		switch_event_destroy(&r->result_headers);
+	}
 	r->start_of_input = 0;
 
 	/* input timers are started by default unless the start-input-timers=false param is set */
@@ -2318,8 +2340,8 @@ static switch_status_t recog_channel_load_grammar(speech_channel_t *schannel, co
 		goto done;
 	}
 
-	/* if inline, use DEFINE-GRAMMAR to cache it on the server */
-	if (type != GRAMMAR_TYPE_URI) {
+	/* if inline or requested via define-grammar param, use DEFINE-GRAMMAR to cache it on the server */
+	if (type != GRAMMAR_TYPE_URI || switch_true(switch_core_hash_find(schannel->params, "define-grammar"))) {
 		mrcp_message_t *mrcp_message;
 		mrcp_generic_header_t *generic_header;
 		const char *mime_type;
@@ -2496,7 +2518,7 @@ static switch_status_t recog_channel_check_results(speech_channel_t *schannel)
 	r = (recognizer_data_t *) schannel->data;
 	if (!zstr(r->result)) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) SUCCESS, have result\n", schannel->name);
-	} else if (r->start_of_input) {
+	} else if (r->start_of_input == START_OF_INPUT_RECEIVED) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) SUCCESS, start of input\n", schannel->name);
 	} else {
 		status = SWITCH_STATUS_FALSE;
@@ -2517,7 +2539,7 @@ static switch_status_t recog_channel_start_input_timers(speech_channel_t *schann
 	recognizer_data_t *r = (recognizer_data_t *) schannel->data;
 	switch_mutex_lock(schannel->mutex);
 
-	if (schannel->state == SPEECH_CHANNEL_PROCESSING && !r->timers_started) {
+	if (schannel->state == SPEECH_CHANNEL_PROCESSING && !r->timers_started && !r->start_of_input) {
 		mrcp_message_t *mrcp_message;
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) Starting input timers\n", schannel->name);
 		/* Send START-INPUT-TIMERS to MRCP server */
@@ -2549,7 +2571,7 @@ static switch_status_t recog_channel_set_start_of_input(speech_channel_t *schann
 	recognizer_data_t *r;
 	switch_mutex_lock(schannel->mutex);
 	r = (recognizer_data_t *) schannel->data;
-	r->start_of_input = 1;
+	r->start_of_input = START_OF_INPUT_RECEIVED;
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) start of input\n", schannel->name);
 	switch_mutex_unlock(schannel->mutex);
 	return status;
@@ -2588,6 +2610,141 @@ static switch_status_t recog_channel_set_results(speech_channel_t *schannel, con
 }
 
 /**
+ * Find a parameter from a ;-separated string
+ *
+ * @param str the input string to find data in
+ * @param param the parameter to to look for
+ * @return a pointer in the str if successful, or NULL.
+ */
+static char *find_parameter(const char *str, const char *param)
+{
+	char *ptr = (char *) str;
+
+	while (ptr) {
+		if (!strncasecmp(ptr, param, strlen(param)))
+			return ptr;
+
+		if ((ptr = strchr(ptr, ';')))
+			ptr++;
+
+		while (ptr && *ptr == ' ') {
+			ptr++;
+		}
+	}
+
+	return NULL;
+}
+
+/**
+ * Get a parameter value from a ;-separated string
+ *
+ * @param str the input string to parse data from
+ * @param param the parameter to to look for
+ * @return a malloc'ed char* if successful, or NULL.
+ */
+static char *get_parameter_value(const char *str, const char *param)
+{
+	const char *param_ptr;
+	char *param_value = NULL;
+	char *tmp;
+	switch_size_t param_len;
+	char *param_tmp;
+
+	if (zstr(str) || zstr(param)) return NULL;
+
+	/* Append "=" to the end of the string */
+	param_tmp = switch_mprintf("%s=", param);
+	if (!param_tmp) return NULL;
+	param = param_tmp;
+
+	param_len = strlen(param);
+	param_ptr = find_parameter(str, param);
+
+	if (zstr(param_ptr)) goto fail;
+
+	param_value = strdup(param_ptr + param_len);
+
+	if (zstr(param_value)) goto fail;
+
+	if ((tmp = strchr(param_value, ';'))) *tmp = '\0';
+
+	switch_safe_free(param_tmp);
+	return param_value;
+
+  fail:
+	switch_safe_free(param_tmp);
+	switch_safe_free(param_value);
+	return NULL;
+}
+
+/**
+ * Set the recognition result headers
+ *
+ * @param schannel the channel whose results are set
+ * @param recog_hdr the recognition headers
+ * @return SWITCH_STATUS_SUCCESS if successful
+ */
+static switch_status_t recog_channel_set_result_headers(speech_channel_t *schannel, mrcp_recog_header_t *recog_hdr)
+{
+	switch_status_t status = SWITCH_STATUS_SUCCESS;
+	recognizer_data_t *r;
+
+	switch_mutex_lock(schannel->mutex);
+
+	r = (recognizer_data_t *) schannel->data;
+
+	if (r->result_headers) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) result headers are already set\n", schannel->name);
+		status = SWITCH_STATUS_FALSE;
+		goto done;
+	}
+
+	if (!recog_hdr) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) result headers are NULL\n", schannel->name);
+		status = SWITCH_STATUS_FALSE;
+		goto done;
+	}
+
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) ASR adding result headers\n", schannel->name);
+
+	if ((status = switch_event_create(&r->result_headers, SWITCH_EVENT_CLONE)) == SWITCH_STATUS_SUCCESS) {
+
+		switch_event_add_header(r->result_headers, SWITCH_STACK_BOTTOM, "ASR-Completion-Cause", "%d", recog_hdr->completion_cause);
+
+		if (!zstr(recog_hdr->completion_reason.buf)) {
+			switch_event_add_header_string(r->result_headers, SWITCH_STACK_BOTTOM, "ASR-Completion-Reason", recog_hdr->completion_reason.buf);
+		}
+
+		if (!zstr(recog_hdr->waveform_uri.buf)) {
+			char *tmp;
+
+			if ((tmp = strdup(recog_hdr->waveform_uri.buf))) {
+				char *tmp2;
+				if ((tmp2 = strchr(tmp, ';'))) *tmp2 = '\0';
+				switch_event_add_header_string(r->result_headers, SWITCH_STACK_BOTTOM, "ASR-Waveform-URI", tmp);
+				free(tmp);
+			}
+
+			if ((tmp = get_parameter_value(recog_hdr->waveform_uri.buf, "size"))) {
+				switch_event_add_header_string(r->result_headers, SWITCH_STACK_BOTTOM, "ASR-Waveform-Size", tmp);
+				free(tmp);
+			}
+
+			if ((tmp = get_parameter_value(recog_hdr->waveform_uri.buf, "duration"))) {
+				switch_event_add_header_string(r->result_headers, SWITCH_STACK_BOTTOM, "ASR-Waveform-Duration", tmp);
+				free(tmp);
+			}
+		}
+	}
+
+  done:
+
+	switch_mutex_unlock(schannel->mutex);
+
+	return status;
+}
+
+/**
  * Get the recognition results.
  *
  * @param schannel the channel to get results from
@@ -2603,17 +2760,40 @@ static switch_status_t recog_channel_get_results(speech_channel_t *schannel, cha
 		*result = strdup(r->result);
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) result:\n\n%s\n", schannel->name, *result ? *result : "");
 		r->result = NULL;
-		r->start_of_input = 0;
-	} else if (r->start_of_input) {
+		r->start_of_input = START_OF_INPUT_REPORTED;
+	} else if (r->start_of_input == START_OF_INPUT_RECEIVED) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) start of input\n", schannel->name);
 		status = SWITCH_STATUS_BREAK;
-		r->start_of_input = 0;
+		r->start_of_input = START_OF_INPUT_REPORTED;
 	} else {
 		status = SWITCH_STATUS_FALSE;
 	}
 
 	switch_mutex_unlock(schannel->mutex);
 	return status;
+}
+
+/**
+ * Get the recognition result headers.
+ *
+ * @param schannel the channel to get results from
+ * @param result_headers the recognition result headers. switch_event_destroy() the results when finished with them.
+ * @return SWITCH_STATUS_SUCCESS will always be returned, since this is just optional data.
+ */
+static switch_status_t recog_channel_get_result_headers(speech_channel_t *schannel, switch_event_t **result_headers)
+{
+	recognizer_data_t *r = (recognizer_data_t *) schannel->data;
+
+	switch_mutex_lock(schannel->mutex);
+
+	if (r->result_headers && result_headers) {
+		*result_headers = r->result_headers;
+		r->result_headers = NULL;
+	}
+
+	switch_mutex_unlock(schannel->mutex);
+
+	return SWITCH_STATUS_SUCCESS;
 }
 
 /**
@@ -2642,6 +2822,10 @@ static switch_status_t recog_channel_set_params(speech_channel_t *schannel, mrcp
 			if (id) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) \"%s\": \"%s\"\n", schannel->name, param_name, param_val);
 				recog_channel_set_header(schannel, id->id, param_val, msg, recog_hdr);
+			} else if (!strcasecmp(param_name, "define-grammar")) {
+				// This parameter is used internally only, not in MRCP headers
+			} else if (!strcasecmp(param_name, "name")) {
+				// This parameter is used internally only, not in MRCP headers
 			} else if (!strcasecmp(param_name, "start-recognize")) {
 				// This parameter is used internally only, not in MRCP headers
 			} else {
@@ -2982,6 +3166,7 @@ static switch_status_t recog_asr_load_grammar(switch_asr_handle_t *ah, const cha
 	switch_size_t grammar_file_size = 0, to_read = 0;
 	grammar_type_t type = GRAMMAR_TYPE_UNKNOWN;
 	char *filename = NULL;
+
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) grammar = %s, name = %s\n", schannel->name, grammar, name);
 
 	grammar = skip_initial_whitespace(grammar);
@@ -3002,20 +3187,8 @@ static switch_status_t recog_asr_load_grammar(switch_asr_handle_t *ah, const cha
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) Grammar is URI\n", schannel->name);
 		type = GRAMMAR_TYPE_URI;
 		grammar_data = grammar;
-
-		/* if a name was not given, just use the URI that was passed in */
-		if (zstr(name)) {
-			name = grammar;
-		}
 	} else if (text_starts_with(grammar, INLINE_ID)) {
 		grammar_data = grammar + strlen(INLINE_ID);
-
-		/* name is required for inline grammars */
-		if (zstr(name)) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "(%s) missing grammar name\n", schannel->name);
-			status = SWITCH_STATUS_FALSE;
-			goto done;
-		}
 	} else {
 		/* grammar points to file containing the grammar text.  We assume the MRCP server can't get to this file
 		 * so read the data from the file and cache it */
@@ -3051,10 +3224,17 @@ static switch_status_t recog_asr_load_grammar(switch_asr_handle_t *ah, const cha
 		}
 		grammar_file_data[to_read] = '\0';
 		grammar_data = grammar_file_data;
+	}
 
-		/* if a name was not given, just use the filename that was passed in */
+	/* if a name was not given, check if defined in a param */
+	if (zstr(name)) {
+		name = switch_core_hash_find(schannel->params, "name");
+
+		/* if not defined in param, create one */
 		if (zstr(name)) {
-			name = grammar;
+			char id[SWITCH_UUID_FORMATTED_LENGTH + 1] = { 0 };
+			switch_uuid_str(id, sizeof(id));
+			name = switch_core_strdup(schannel->memory_pool, id);
 		}
 	}
 
@@ -3196,6 +3376,9 @@ static switch_status_t recog_asr_close(switch_asr_handle_t *ah, switch_asr_flag_
 			r->dtmf_generator_active = 0;
 			mpf_dtmf_generator_destroy(r->dtmf_generator);
 		}
+		if (r->result_headers) {
+			switch_event_destroy(&r->result_headers);
+		}
 		switch_mutex_unlock(schannel->mutex);
 		speech_channel_destroy(schannel);
 	}
@@ -3222,7 +3405,7 @@ static switch_status_t recog_asr_feed(switch_asr_handle_t *ah, void *data, unsig
  * Process asr_feed_dtmf request from FreeSWITCH
  *
  * @param ah the FreeSWITCH speech recognition handle
- * @return SWITCH_STATUS_SUCCESS if successful 
+ * @return SWITCH_STATUS_SUCCESS if successful
  */
 static switch_status_t recog_asr_feed_dtmf(switch_asr_handle_t *ah, const switch_dtmf_t *dtmf, switch_asr_flag_t *flags)
 {
@@ -3313,6 +3496,19 @@ static switch_status_t recog_asr_get_results(switch_asr_handle_t *ah, char **xml
 {
 	speech_channel_t *schannel = (speech_channel_t *) ah->private_info;
 	return recog_channel_get_results(schannel, xmlstr);
+}
+
+/**
+ * Process asr_get_result_headers request from FreeSWITCH.  Return the headers back
+ * to FreeSWITCH.  FreeSWITCH will switch_event_destroy() the headers.
+ *
+ * @param ah the FreeSWITCH speech recognition handle
+ * @param flags other flags
+ */
+static switch_status_t recog_asr_get_result_headers(switch_asr_handle_t *ah, switch_event_t **headers, switch_asr_flag_t *flags)
+{
+	speech_channel_t *schannel = (speech_channel_t *) ah->private_info;
+	return recog_channel_get_result_headers(schannel, headers);
 }
 
 /**
@@ -3462,6 +3658,7 @@ static apt_bool_t recog_on_message_receive(mrcp_application_t *application, mrcp
 							  recog_hdr->completion_cause);
 			if (message->body.length > 0) {
 				if (message->body.buf[message->body.length - 1] == '\0') {
+					recog_channel_set_result_headers(schannel, recog_hdr);
 					recog_channel_set_results(schannel, message->body.buf);
 				} else {
 					/* string is not null terminated */
@@ -3470,11 +3667,13 @@ static apt_bool_t recog_on_message_receive(mrcp_application_t *application, mrcp
 									  "(%s) Recognition result is not null-terminated.  Appending null terminator.\n", schannel->name);
 					strncpy(result, message->body.buf, message->body.length);
 					result[message->body.length] = '\0';
+					recog_channel_set_result_headers(schannel, recog_hdr);
 					recog_channel_set_results(schannel, result);
 				}
 			} else {
 				char *completion_cause = switch_mprintf("Completion-Cause: %03d", recog_hdr->completion_cause);
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "(%s) No result\n", schannel->name);
+				recog_channel_set_result_headers(schannel, recog_hdr);
 				recog_channel_set_results(schannel, completion_cause);
 				switch_safe_free(completion_cause);
 			}
@@ -3507,9 +3706,9 @@ static apt_bool_t recog_stream_open(mpf_audio_stream_t *stream, mpf_codec_t *cod
 {
 	speech_channel_t *schannel = (speech_channel_t *) stream->obj;
 	recognizer_data_t *r = (recognizer_data_t *) schannel->data;
-	
+
 	r->unimrcp_stream = stream;
-	
+
 	return TRUE;
 }
 
@@ -3534,7 +3733,7 @@ static apt_bool_t recog_stream_read(mpf_audio_stream_t *stream, mpf_frame_t *fra
 		frame->type |= MEDIA_FRAME_TYPE_AUDIO;
 	}
 
-	switch_mutex_lock(schannel->mutex);	
+	switch_mutex_lock(schannel->mutex);
 	if (r->dtmf_generator_active) {
 		if (!mpf_dtmf_generator_put_frame(r->dtmf_generator, frame)) {
 			if (!mpf_dtmf_generator_sending(r->dtmf_generator))
@@ -3573,6 +3772,7 @@ static switch_status_t recog_load(switch_loadable_module_interface_t *module_int
 	asr_interface->asr_pause = recog_asr_pause;
 	asr_interface->asr_check_results = recog_asr_check_results;
 	asr_interface->asr_get_results = recog_asr_get_results;
+	asr_interface->asr_get_result_headers = recog_asr_get_result_headers;
 	asr_interface->asr_start_input_timers = recog_asr_start_input_timers;
 	asr_interface->asr_text_param = recog_asr_text_param;
 	asr_interface->asr_numeric_param = recog_asr_numeric_param;
@@ -3609,7 +3809,7 @@ static switch_status_t recog_load(switch_loadable_module_interface_t *module_int
 	switch_core_hash_insert(globals.recog.param_id_map, "N-Best-List-Length", unimrcp_param_id_create(RECOGNIZER_HEADER_N_BEST_LIST_LENGTH, pool));
 	switch_core_hash_insert(globals.recog.param_id_map, "No-Input-Timeout", unimrcp_param_id_create(RECOGNIZER_HEADER_NO_INPUT_TIMEOUT, pool));
 	switch_core_hash_insert(globals.recog.param_id_map, "Recognition-Timeout", unimrcp_param_id_create(RECOGNIZER_HEADER_RECOGNITION_TIMEOUT, pool));
-	switch_core_hash_insert(globals.recog.param_id_map, "Waveform-Url", unimrcp_param_id_create(RECOGNIZER_HEADER_WAVEFORM_URI, pool));
+	switch_core_hash_insert(globals.recog.param_id_map, "Waveform-Uri", unimrcp_param_id_create(RECOGNIZER_HEADER_WAVEFORM_URI, pool));
 	switch_core_hash_insert(globals.recog.param_id_map, "Completion-Cause", unimrcp_param_id_create(RECOGNIZER_HEADER_COMPLETION_CAUSE, pool));
 	switch_core_hash_insert(globals.recog.param_id_map, "Recognizer-Context-Block",
 							unimrcp_param_id_create(RECOGNIZER_HEADER_RECOGNIZER_CONTEXT_BLOCK, pool));
@@ -4333,5 +4533,5 @@ static unimrcp_param_id_t *unimrcp_param_id_create(int id, switch_memory_pool_t 
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

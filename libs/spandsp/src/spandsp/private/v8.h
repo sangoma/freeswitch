@@ -22,14 +22,14 @@
  * License along with this program; if not, write to the Free Software
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
- 
+
 #if !defined(_SPANDSP_PRIVATE_V8_H_)
 #define _SPANDSP_PRIVATE_V8_H_
 
 struct v8_state_s
 {
-    /*! \brief TRUE if we are the calling party */
-    int calling_party;
+    /*! \brief True if we are the calling party */
+    bool calling_party;
 
     /*! \brief A handler to process the V.8 signals */
     v8_result_handler_t result_handler;
@@ -38,7 +38,7 @@ struct v8_state_s
 
     /*! \brief The current state of the V.8 protocol */
     int state;
-    int fsk_tx_on;
+    bool fsk_tx_on;
     int modem_connect_tone_tx_on;
     int negotiation_timer;
     int ci_timer;
@@ -62,13 +62,13 @@ struct v8_state_s
     int preamble_type;
     uint8_t rx_data[64];
     int rx_data_ptr;
-    
+
     /*! \brief a reference copy of the last CM or JM message, used when
                testing for matches. */
     uint8_t cm_jm_data[64];
     int cm_jm_len;
-    int got_cm_jm;
-    int got_cj;
+    bool got_cm_jm;
+    bool got_cj;
     int zero_byte_count;
     /*! \brief Error and flow logging control */
     logging_state_t logging;

@@ -310,7 +310,7 @@ struct switch_file_handle {
 	/*! the current native samplerate */
 	uint32_t native_rate;
 	/*! the number of channels */
-	uint8_t channels;
+	uint32_t channels;
 	/*! integer representation of the format */
 	unsigned int format;
 	/*! integer representation of the sections */
@@ -351,6 +351,10 @@ struct switch_file_handle {
 	char *file_path;
 	char *spool_path;
 	const char *prefix;
+	int max_samples;
+	switch_event_t *params;
+	uint32_t cur_channels;
+	uint32_t cur_samplerate;
 };
 
 /*! \brief Abstract interface to an asr module */
@@ -375,6 +379,8 @@ struct switch_asr_interface {
 	switch_status_t (*asr_check_results) (switch_asr_handle_t *ah, switch_asr_flag_t *flags);
 	/*! function to read results from the ASR */
 	switch_status_t (*asr_get_results) (switch_asr_handle_t *ah, char **xmlstr, switch_asr_flag_t *flags);
+	/*! function to read result headers from the ASR */
+	switch_status_t (*asr_get_result_headers) (switch_asr_handle_t *ah, switch_event_t **headers, switch_asr_flag_t *flags);
 	/*! function to start ASR input timers */
 	switch_status_t (*asr_start_input_timers) (switch_asr_handle_t *ah);
 	void (*asr_text_param) (switch_asr_handle_t *ah, char *param, const char *val);
@@ -759,5 +765,5 @@ SWITCH_END_EXTERN_C
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

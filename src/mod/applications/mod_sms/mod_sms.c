@@ -24,6 +24,7 @@
  * Contributor(s):
  * 
  * Anthony Minessale II <anthm@freeswitch.org>
+ * Raymond Chandler <intralanman@freeswitch.org>
  *
  * mod_sms.c -- Abstract SMS 
  *
@@ -72,15 +73,16 @@ typedef enum {
 } break_t;
 
 
-#define check_tz() tzoff = switch_event_get_header(event, "tod_tz_offset"); \
-	tzname = switch_event_get_header(event, "timezone");			\
+#define check_tz()														\
 	do {																\
+		tzoff = switch_event_get_header(event, "tod_tz_offset");		\
+		tzname = switch_event_get_header(event, "timezone");			\
 		if (!zstr(tzoff) && switch_is_number(tzoff)) {					\
 			offset = atoi(tzoff);										\
+			break;														\
 		} else {														\
 			tzoff = NULL;												\
 		}																\
-		break;															\
 	} while(tzoff)														
 
 static int parse_exten(switch_event_t *event, switch_xml_t xexten, switch_event_t **extension)
@@ -259,7 +261,7 @@ static int parse_exten(switch_event_t *event, switch_xml_t xexten, switch_event_
 
 				if (field && strchr(expression, '(')) {
 					len = (uint32_t) (strlen(data) + strlen(field_data) + 10) * proceed;
-					if (!(substituted = malloc(len))) {
+					if (!(substituted = (char *) malloc(len))) {
 						abort();
 					}
 					memset(substituted, 0, len);
@@ -447,13 +449,30 @@ static switch_status_t chat_send(switch_event_t *message_event)
 
 }
 
+SWITCH_STANDARD_CHAT_APP(info_function)
+{
+	char *buf;
+	int level = SWITCH_LOG_INFO;
+
+	if (!zstr(data)) {
+		level = switch_log_str2level(data);
+	}
+
+	switch_event_serialize(message, &buf, SWITCH_FALSE);
+	switch_assert(buf);
+	switch_log_printf(SWITCH_CHANNEL_LOG, level, "CHANNEL_DATA:\n%s\n", buf);
+	free(buf);
+
+	return SWITCH_STATUS_SUCCESS;
+}
+
 SWITCH_STANDARD_CHAT_APP(system_function)
 {
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Executing command: %s\n", data);
-        if (switch_system(data, SWITCH_TRUE) < 0) {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Failed to execute command: %s\n", data);
+	if (switch_system(data, SWITCH_TRUE) < 0) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Failed to execute command: %s\n", data);
 		return SWITCH_STATUS_FALSE;
-        }
+	}
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -545,6 +564,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_sms_load)
 
 	SWITCH_ADD_CHAT(chat_interface, SMS_CHAT_PROTO, chat_send);
 
+	SWITCH_ADD_CHAT_APP(chat_app_interface, "info", "Display Call Info", "Display Call Info", info_function, "", SCAF_NONE);
 	SWITCH_ADD_CHAT_APP(chat_app_interface, "reply", "reply to a message", "reply to a message", reply_function, "", SCAF_NONE);
 	SWITCH_ADD_CHAT_APP(chat_app_interface, "stop", "stop execution", "stop execution", stop_function, "", SCAF_NONE);
 	SWITCH_ADD_CHAT_APP(chat_app_interface, "set", "set a variable", "set a variable", set_function, "", SCAF_NONE);
@@ -577,5 +597,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_sms_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet
  */

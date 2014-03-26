@@ -65,8 +65,8 @@ extern "C" {
 #define LDL_MAX_PAYLOADS 50
 #define LDL_RETRY 3
 #define IKS_NS_COMPONENT "jabber:component:accept"
-/* period between keep alive signals in 0.1sec units*/
-#define LDL_KEEPALIVE_TIMEOUT 6000
+/* period between keep alive signals in 1sec units*/
+#define LDL_KEEPALIVE_TIMEOUT 300
 
 typedef struct ldl_crypto_data_s {
 	char *tag;
@@ -746,5 +746,5 @@ ldl_status ldl_global_terminate(void);
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

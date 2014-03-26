@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2012, Anthony Minessale II
+ * Copyright (c) 2007-2014, Anthony Minessale II
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -2968,6 +2968,10 @@ static ftdm_status_t ftdm_channel_done(ftdm_channel_t *ftdmchan)
 		ftdm_buffer_zero(ftdmchan->gen_dtmf_buffer);
 	}
 
+	if (ftdmchan->dtmf_buffer) {
+		ftdm_buffer_zero(ftdmchan->dtmf_buffer);
+	}
+
 	if (ftdmchan->digit_buffer) {
 		ftdm_buffer_zero(ftdmchan->digit_buffer);
 	}
@@ -3806,12 +3810,12 @@ FT_DECLARE(ftdm_status_t) ftdm_channel_queue_dtmf(ftdm_channel_t *ftdmchan, cons
 #endif
 
 		if (ftdm_strlen_zero(globals.dtmfdebug_directory)) {
-			snprintf(dfile, sizeof(dfile), "dtmf-s%dc%d-20%d-%d-%d-%d:%d:%d.%s", 
+			snprintf(dfile, sizeof(dfile), "dtmf-s%dc%d-20%d-%d-%d-%d%d%d.%s", 
 					ftdmchan->span_id, ftdmchan->chan_id, 
 					currtime.tm_year-100, currtime.tm_mon+1, currtime.tm_mday,
 					currtime.tm_hour, currtime.tm_min, currtime.tm_sec, ftdmchan->native_codec == FTDM_CODEC_ULAW ? "ulaw" : ftdmchan->native_codec == FTDM_CODEC_ALAW ? "alaw" : "sln");
 		} else {
-			snprintf(dfile, sizeof(dfile), "%s/dtmf-s%dc%d-20%d-%d-%d-%d:%d:%d.%s", 
+			snprintf(dfile, sizeof(dfile), "%s/dtmf-s%dc%d-20%d-%d-%d-%d%d%d.%s", 
 					globals.dtmfdebug_directory,
 					ftdmchan->span_id, ftdmchan->chan_id, 
 					currtime.tm_year-100, currtime.tm_mon+1, currtime.tm_mday,
@@ -5116,6 +5120,7 @@ static ftdm_status_t load_config(void)
 	sprintf(chan_config.group_name, "__default");
 
 	if (!ftdm_config_open_file(&cfg, cfg_name)) {
+		ftdm_log(FTDM_LOG_ERROR, "Failed to open configuration file %s\n", cfg_name);
 		return FTDM_FAIL;
 	}
 
@@ -6067,6 +6072,7 @@ static void execute_safety_hangup(void *data)
 FT_DECLARE(ftdm_status_t) ftdm_span_send_signal(ftdm_span_t *span, ftdm_sigmsg_t *sigmsg)
 {
 	ftdm_channel_t *fchan = NULL;
+	ftdm_status_t status = FTDM_SUCCESS;
 	if (sigmsg->channel) {
 		fchan = sigmsg->channel;
 		ftdm_channel_lock(fchan);
@@ -6171,7 +6177,7 @@ FT_DECLARE(ftdm_status_t) ftdm_span_send_signal(ftdm_span_t *span, ftdm_sigmsg_t
 	if (ftdm_test_flag(span, FTDM_SPAN_USE_SIGNALS_QUEUE)) {
 		ftdm_span_queue_signal(span, sigmsg);
 	} else {
-		ftdm_span_trigger_signal(span, sigmsg);
+		status = ftdm_span_trigger_signal(span, sigmsg);
 	}
 
 done:
@@ -6180,7 +6186,7 @@ done:
 		ftdm_channel_unlock(fchan);
 	}
 
-	return FTDM_SUCCESS;
+	return status;
 }
 
 static void *ftdm_cpu_monitor_run(ftdm_thread_t *me, void *obj)
@@ -6919,5 +6925,5 @@ FT_DECLARE(ftdm_status_t) ftdm_usrmsg_free(ftdm_usrmsg_t **usrmsg)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

@@ -38,9 +38,14 @@
 #endif
 
 #ifndef WIN32
+#include <poll.h>
 #ifdef HAVE_SETRLIMIT
 #include <sys/resource.h>
 #endif
+#endif
+
+#ifdef __linux__
+#include <sys/prctl.h>
 #endif
 
 #include <switch.h>
@@ -87,14 +92,6 @@ static void handle_SIGILL(int sig)
 }
 
 #ifndef WIN32
-static void handle_SIGUSR2(int sig)
-{
-	if (sig) {};
-
-	system_ready = 1;
-
-	return;
-}
 
 static void handle_SIGCHLD(int sig)
 {
@@ -239,12 +236,37 @@ void WINAPI service_main(DWORD numArgs, char **args)
 
 #else
 
-static void daemonize(int do_wait)
+static int check_fd(int fd, int ms)
+{
+	struct pollfd pfds[2] = { { 0 } };
+	int s, r = 0, i = 0;
+
+	pfds[0].fd = fd;
+	pfds[0].events = POLLIN | POLLERR;
+	s = poll(pfds, 1, ms);
+
+	if (s == 0 || s == -1) {
+		r = s;
+	} else {
+		r = -1;
+
+		if ((pfds[0].revents & POLLIN)) {
+			if ((i = read(fd, &r, sizeof(r))) > -1) {
+				i = write(fd, &r, sizeof(r));
+			}
+		}
+	}
+	
+	return r;
+}
+
+static void daemonize(int *fds)
 {
 	int fd;
 	pid_t pid;
+	unsigned int sanity = 60;
 
-	if (!do_wait) {
+	if (!fds) {
 		switch (fork()) {
 		case 0:		/* child process */
 			break;
@@ -266,6 +288,9 @@ static void daemonize(int do_wait)
 
 	switch (pid) {
 	case 0:		/* child process */
+		if (fds) {
+			close(fds[0]);
+		}
 		break;
 	case -1:
 		fprintf(stderr, "Error Backgrounding (fork2)! %d - %s\n", errno, strerror(errno));
@@ -274,9 +299,10 @@ static void daemonize(int do_wait)
 	default:	/* parent process */
 		fprintf(stderr, "%d Backgrounding.\n", (int) pid);
 
-		if (do_wait) {
-			unsigned int sanity = 60;
+		if (fds) {
 			char *o;
+
+			close(fds[1]);
 
 			if ((o = getenv("FREESWITCH_BG_TIMEOUT"))) {
 				int tmp = atoi(o);
@@ -285,14 +311,21 @@ static void daemonize(int do_wait)
 				}
 			}
 
-			while (--sanity && !system_ready) {
+			do {
+				system_ready = check_fd(fds[0], 2000);
 
-				if (sanity % 2 == 0) {
+				if (system_ready == 0) {
 					printf("FreeSWITCH[%d] Waiting for background process pid:%d to be ready.....\n", (int)getpid(), (int) pid);
 				}
-				sleep(1);
-			}
-			if (!system_ready) {
+
+			} while (--sanity && system_ready == 0);
+
+			shutdown(fds[0], 2);
+			close(fds[0]);
+			fds[0] = -1;
+
+			
+			if (system_ready < 0) {
 				printf("FreeSWITCH[%d] Error starting system! pid:%d\n", (int)getpid(), (int) pid);
 				kill(pid, 9);
 				exit(EXIT_FAILURE);
@@ -300,13 +333,13 @@ static void daemonize(int do_wait)
 
 			printf("FreeSWITCH[%d] System Ready pid:%d\n", (int) getpid(), (int) pid);
 		}
+
 		exit(EXIT_SUCCESS);
 	}
 
-	if (do_wait) {
+	if (fds) {
 		setsid();
 	}
-
 	/* redirect std* to null */
 	fd = open("/dev/null", O_RDONLY);
 	if (fd != 0) {
@@ -325,6 +358,54 @@ static void daemonize(int do_wait)
 		dup2(fd, 2);
 		close(fd);
 	}
+	return;
+}
+
+static pid_t reincarnate_child = 0;
+static void reincarnate_handle_sigterm (int sig) {
+	if (!sig) return;
+	if (reincarnate_child) kill(reincarnate_child, sig);
+	return;
+}
+
+static void reincarnate_protect(char **argv) {
+	int i; struct sigaction sa, sa_dfl, sa4_prev, sa15_prev, sa17_prev;
+	memset(&sa, 0, sizeof(sa)); memset(&sa_dfl, 0, sizeof(sa_dfl));
+	sa.sa_handler = reincarnate_handle_sigterm;
+	sa_dfl.sa_handler = SIG_DFL;
+ refork:
+	if ((i=fork())) { /* parent */
+		int s; pid_t r;
+		reincarnate_child = i;
+		sigaction(SIGILL, &sa, &sa4_prev);
+		sigaction(SIGTERM, &sa, &sa15_prev);
+		sigaction(SIGCHLD, &sa_dfl, &sa17_prev);
+	rewait:
+		r = waitpid(i, &s, 0);
+		if (r == (pid_t)-1) {
+			if (errno == EINTR) goto rewait;
+			exit(EXIT_FAILURE);
+		}
+		if (r != i) goto rewait;
+		if (WIFEXITED(s)
+			&& (WEXITSTATUS(s) == EXIT_SUCCESS
+				|| WEXITSTATUS(s) == EXIT_FAILURE)) {
+			exit(WEXITSTATUS(s));
+		}
+		if (WIFEXITED(s) || WIFSIGNALED(s)) {
+			sigaction(SIGILL, &sa4_prev, NULL);
+			sigaction(SIGTERM, &sa15_prev, NULL);
+			sigaction(SIGCHLD, &sa17_prev, NULL);
+			if (argv) {
+				execv(argv[0], argv); return;
+			} else goto refork;
+		}
+		goto rewait;
+	} else { /* child */
+#ifdef __linux__
+		prctl(PR_SET_PDEATHSIG, SIGTERM);
+#endif
+	}
 }
 
 #endif
@@ -339,18 +420,22 @@ static const char usage[] =
 	"\t-monotonic-clock       -- use monotonic clock as timer source\n"
 #else
 	"\t-nf                    -- no forking\n"
+	"\t-reincarnate           -- restart the switch on an uncontrolled exit\n"
+	"\t-reincarnate-reexec    -- run execv on a restart (helpful for upgrades)\n"
 	"\t-u [user]              -- specify user to switch to\n"
 	"\t-g [group]             -- specify group to switch to\n"
 #endif
 #ifdef HAVE_SETRLIMIT
+#ifndef FS_64BIT
 	"\t-waste                 -- allow memory waste\n"
+#endif
 	"\t-core                  -- dump cores\n"
 #endif
 	"\t-help                  -- this message\n"
 	"\t-version               -- print the version and exit\n"
 	"\t-rp                    -- enable high(realtime) priority settings\n"
 	"\t-lp                    -- enable low priority settings\n"
-	"\t-np                    -- enable normal priority settings (system defaults)\n"
+	"\t-np                    -- enable normal priority settings\n"
 	"\t-vg                    -- run under valgrind\n"
 	"\t-nosql                 -- disable internal sql scoreboard\n"
 	"\t-heavy-timer           -- Heavy Timer, possibly more accurate but at a cost\n"
@@ -366,6 +451,7 @@ static const char usage[] =
 	"\t-c                     -- output to a console and stay in the foreground\n"
 	"\n\tOptions to control locations of files:\n"
 	"\t-base [basedir]         -- alternate prefix directory\n"
+	"\t-cfgname [filename]     -- alternate filename for FreeSWITCH main configuration file\n"
 	"\t-conf [confdir]         -- alternate directory for FreeSWITCH configuration files\n"
 	"\t-log [logdir]           -- alternate directory for logfiles\n"
 	"\t-run [rundir]           -- alternate directory for runtime files\n"
@@ -404,6 +490,8 @@ int main(int argc, char *argv[])
 	switch_bool_t do_wait = SWITCH_FALSE;
 	char *runas_user = NULL;
 	char *runas_group = NULL;
+	switch_bool_t reincarnate = SWITCH_FALSE, reincarnate_reexec = SWITCH_FALSE;
+	int fds[2] = { 0, 0 };
 #else
 	switch_bool_t win32_service = SWITCH_FALSE;
 #endif
@@ -427,7 +515,9 @@ int main(int argc, char *argv[])
 	switch_file_t *fd;
 	switch_memory_pool_t *pool = NULL;
 #ifdef HAVE_SETRLIMIT
+#ifndef FS_64BIT
 	switch_bool_t waste = SWITCH_FALSE;
+#endif
 #endif
 
 	for (x = 0; x < argc; x++) {
@@ -576,6 +666,14 @@ int main(int argc, char *argv[])
 			nf = SWITCH_TRUE;
 		}
 
+		else if (!strcmp(local_argv[x], "-reincarnate")) {
+			reincarnate = SWITCH_TRUE;
+		}
+		else if (!strcmp(local_argv[x], "-reincarnate-reexec")) {
+			reincarnate = SWITCH_TRUE;
+			reincarnate_reexec = SWITCH_TRUE;
+		}
+
 		else if (!strcmp(local_argv[x], "-version")) {
 			fprintf(stdout, "FreeSWITCH version: %s (%s)\n", SWITCH_VERSION_FULL, SWITCH_VERSION_REVISION_HUMAN);
 			exit(EXIT_SUCCESS);
@@ -591,13 +689,17 @@ int main(int argc, char *argv[])
 		}
 
 		else if (!strcmp(local_argv[x], "-waste")) {
+#ifndef FS_64BIT
 			fprintf(stderr, "WARNING: Wasting up to 8 megs of memory per thread.\n");
 			sleep(2);
 			waste = SWITCH_TRUE;
+#endif
 		}
 
 		else if (!strcmp(local_argv[x], "-no-auto-stack")) {
+#ifndef FS_64BIT
 			waste = SWITCH_TRUE;
+#endif
 		}
 #endif
 		else if (!strcmp(local_argv[x], "-hp") || !strcmp(local_argv[x], "-rp")) {
@@ -857,6 +959,21 @@ int main(int argc, char *argv[])
 			strcpy(SWITCH_GLOBAL_dirs.sounds_dir, local_argv[x]);
 		}
 
+		else if (!strcmp(local_argv[x], "-cfgname")) {
+			x++;
+			if (switch_strlen_zero(local_argv[x]) || is_option(local_argv[x])) {
+				fprintf(stderr, "When using -cfgname you must specify a filename\n");
+				return 255;
+			}
+
+			SWITCH_GLOBAL_filenames.conf_name = (char *) malloc(strlen(local_argv[x]) + 1);
+			if (!SWITCH_GLOBAL_filenames.conf_name) {
+				fprintf(stderr, "Allocation error\n");
+				return 255;
+			}
+			strcpy(SWITCH_GLOBAL_filenames.conf_name, local_argv[x]);
+		}
+
 		/* Unknown option (always last!) */
 		else {
 			fprintf(stderr, "Unknown option '%s', see '%s -help' for a list of valid options\n",
@@ -888,7 +1005,7 @@ int main(int argc, char *argv[])
 		return 255;
 	}
 
-
+#ifndef FS_64BIT
 #if defined(HAVE_SETRLIMIT) && !defined(__sun)
 	if (!waste && !(flags & SCF_VG)) {
 		struct rlimit rlp;
@@ -900,12 +1017,9 @@ int main(int argc, char *argv[])
 			char buf[1024] = "";
 			int i = 0;
 
-			fprintf(stderr, "Error: stacksize %d is not optimal: run ulimit -s %d from your shell before starting the application.\nauto-adjusting stack size for optimal performance...\n",
-					(int) (rlp.rlim_cur / 1024), SWITCH_THREAD_STACKSIZE / 1024);
-
 			memset(&rlp, 0, sizeof(rlp));
 			rlp.rlim_cur = SWITCH_THREAD_STACKSIZE;
-			rlp.rlim_max = SWITCH_THREAD_STACKSIZE;
+			rlp.rlim_max = SWITCH_SYSTEM_THREAD_STACKSIZE;
 			setrlimit(RLIMIT_STACK, &rlp);
 
 			apr_terminate();
@@ -919,12 +1033,16 @@ int main(int argc, char *argv[])
 		}
 	}
 #endif
-
+#endif
 	signal(SIGILL, handle_SIGILL);
 	signal(SIGTERM, handle_SIGILL);
 #ifndef WIN32
 	if (do_wait) {
-		signal(SIGUSR2, handle_SIGUSR2);
+		if (pipe(fds)) {
+			fprintf(stderr, "System Error!\n");
+			exit(-1);
+		}
+
 		signal(SIGCHLD, handle_SIGCHLD);
 	}
 #endif
@@ -934,10 +1052,14 @@ int main(int argc, char *argv[])
 		FreeConsole();
 #else
 		if (!nf) {
-			daemonize(do_wait);
+			daemonize(do_wait ? fds : NULL);
 		}
 #endif
 	}
+#ifndef WIN32
+	if (reincarnate)
+		reincarnate_protect(reincarnate_reexec ? argv : NULL);
+#endif
 
 	switch (priority) {
 	case 2:
@@ -1031,7 +1153,19 @@ int main(int argc, char *argv[])
 
 #ifndef WIN32
 	if (do_wait) {
-		kill(getppid(), SIGUSR2);
+		if (fds[1] > -1) {
+			int i, v = 1;
+
+			if ((i = write(fds[1], &v, sizeof(v))) < 0) {
+				fprintf(stderr, "System Error [%s]\n", strerror(errno));
+			} else {
+				i = read(fds[1], &v, sizeof(v));
+			}
+		
+			shutdown(fds[1], 2);
+			close(fds[1]);
+			fds[1] = -1;
+		}
 	}
 #endif
 
@@ -1072,5 +1206,5 @@ int main(int argc, char *argv[])
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

@@ -86,7 +86,7 @@ SWITCH_MODULE_DEFINITION(mod_gsmopen, mod_gsmopen_load, mod_gsmopen_shutdown, NU
 SWITCH_END_EXTERN_C
 #define GSMOPEN_CHAT_PROTO "sms"
 #if 1
-                      SWITCH_STANDARD_API(gsm_function);
+					  SWITCH_STANDARD_API(gsm_function);
 /* BEGIN: Changes here */
 #define GSM_SYNTAX "list [full] || console || AT_command || remove < interface_name | interface_id > || reload"
 /* END: Changes heres */
@@ -391,7 +391,7 @@ static switch_status_t remove_interface(char *the_interface)
 		goto end;
 	}
 
-        LOKKA(tech_pvt->controldev_lock);
+		LOKKA(tech_pvt->controldev_lock);
 
 	globals.GSMOPEN_INTERFACES[interface_id].running = 0;
 
@@ -473,7 +473,7 @@ static switch_status_t remove_interface(char *the_interface)
 	close(tech_pvt->GSMopenHandles.fdesc[1]);
 #endif /* WIN32 */
 
-        UNLOCKA(tech_pvt->controldev_lock);
+		UNLOCKA(tech_pvt->controldev_lock);
 	switch_mutex_lock(globals.mutex);
 	if (globals.gsm_console == &globals.GSMOPEN_INTERFACES[interface_id]) {
 		DEBUGA_GSMOPEN("interface '%s' no more console\n", GSMOPEN_P_LOG, the_interface);
@@ -1056,7 +1056,7 @@ static switch_call_cause_t channel_outgoing_channel(switch_core_session_t *sessi
 	private_t *tech_pvt = NULL;
 	int result;
 
-        if ((*new_session = switch_core_session_request_uuid(gsmopen_endpoint_interface, SWITCH_CALL_DIRECTION_OUTBOUND, flags, pool, switch_event_get_header(var_event, "origination_uuid"))) != 0) {
+		if ((*new_session = switch_core_session_request_uuid(gsmopen_endpoint_interface, SWITCH_CALL_DIRECTION_OUTBOUND, flags, pool, switch_event_get_header(var_event, "origination_uuid"))) != 0) {
 
 		switch_channel_t *channel = NULL;
 		switch_caller_profile_t *caller_profile;
@@ -3248,5 +3248,5 @@ SWITCH_STANDARD_API(gsmopen_chat_function)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4 expandtab:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet expandtab:
  */

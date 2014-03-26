@@ -5,9 +5,11 @@
 /files
 /modules.conf
 /modules_.conf
+/freeswitch-all.*
 /freeswitch-autotools.install
 /freeswitch-mod-*.install
 /freeswitch-conf-*.install
+/freeswitch-lang-*.install
 /freeswitch-music-*.install
 /freeswitch-sounds-*.install
 /*.lintian-overrides

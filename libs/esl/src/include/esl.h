@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2012, Anthony Minessale II
+ * Copyright (c) 2007-2014, Anthony Minessale II
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -394,7 +394,7 @@ ESL_DECLARE(esl_status_t) esl_attach_handle(esl_handle_t *handle, esl_socket_t s
     \param callback Callback that will be called upon data received
 */
 
-ESL_DECLARE(esl_status_t) esl_listen(const char *host, esl_port_t port, esl_listen_callback_t callback);
+ESL_DECLARE(esl_status_t) esl_listen(const char *host, esl_port_t port, esl_listen_callback_t callback, esl_socket_t *server_sockP);
 ESL_DECLARE(esl_status_t) esl_listen_threaded(const char *host, esl_port_t port, esl_listen_callback_t callback, int max);
 /*!
     \brief Executes application with sendmsg to a specific UUID. Used for outbound socket.
@@ -510,5 +510,5 @@ static __inline__ int esl_safe_strcasecmp(const char *s1, const char *s2)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

@@ -299,6 +299,18 @@ SWITCH_DECLARE(switch_status_t) switch_core_asr_get_results(switch_asr_handle_t 
 	return ah->asr_interface->asr_get_results(ah, xmlstr, flags);
 }
 
+SWITCH_DECLARE(switch_status_t) switch_core_asr_get_result_headers(switch_asr_handle_t *ah, switch_event_t **headers, switch_asr_flag_t *flags)
+{
+	switch_assert(ah != NULL);
+
+	if (ah->asr_interface->asr_get_result_headers) {
+		return ah->asr_interface->asr_get_result_headers(ah, headers, flags);
+	} else {
+		/* Since this is not always implemented, return success if the function can't be called */
+		return SWITCH_STATUS_SUCCESS;
+	}
+}
+
 SWITCH_DECLARE(switch_status_t) switch_core_asr_start_input_timers(switch_asr_handle_t *ah)
 {
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
@@ -347,5 +359,5 @@ SWITCH_DECLARE(void) switch_core_asr_float_param(switch_asr_handle_t *ah, char *
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

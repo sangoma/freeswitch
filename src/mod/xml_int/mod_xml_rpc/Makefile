@@ -1,3 +1,4 @@
+MAKEFLAGS=-j1
 BASE=../../../..
 XMLRPC_DIR=$(BASE)/libs/xmlrpc-c
 
@@ -60,10 +61,12 @@ $(XMLRPC_DIR)/src/xmlrpc_server_abyss.o\
 $(XMLRPC_DIR)/src/xmlrpc_server_cgi.o\
 $(XMLRPC_DIR)/src/xmlrpc_string.o\
 $(XMLRPC_DIR)/src/xmlrpc_struct.o\
-$(XMLRPC_DIR)/lib/expat/xmltok/xmltok.o
+$(XMLRPC_DIR)/lib/expat/xmltok/xmltok.o\
+ws.o
 
 LOCAL_CFLAGS = -w -I$(XMLRPC_DIR)/lib/expat/xmlparse -I$(XMLRPC_DIR)/lib/expat/xmltok -I$(XMLRPC_DIR) -I$(XMLRPC_DIR)/include
 LOCAL_CFLAGS+= -I$(XMLRPC_DIR)/lib/abyss/src -I$(XMLRPC_DIR)/lib/util/include -D_THREAD -D__EXTENSIONS__
+LOCAL_CFLAGS+= -I.
 
 include $(BASE)/build/modmake.rules
 

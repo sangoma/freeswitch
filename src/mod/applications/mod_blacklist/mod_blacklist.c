@@ -271,7 +271,7 @@ SWITCH_STANDARD_API(blacklist_api_function)
 		filename = switch_core_hash_find(globals.files, argv[1]);
 		switch_mutex_unlock(globals.files_mutex);
 
-		if (!bl) {
+		if (!bl || !filename) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unknown blacklist [%s]\n", argv[1]);
 			stream->write_function(stream, "-ERR Unknown blacklist\n");
 			goto done;
@@ -344,5 +344,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_blacklist_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet
  */

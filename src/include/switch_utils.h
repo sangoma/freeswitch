@@ -266,6 +266,10 @@ static inline switch_bool_t switch_is_moh(const char *s)
 	return SWITCH_TRUE;
 }
 
+
+#define zset(_a, _b) if (!zstr(_b)) _a = _b
+
+
 /* find a character (find) in a string (in) and return a pointer to that point in the string where the character was found 
    using the array (allowed) as allowed non-matching characters, when (allowed) is NULL, behaviour should be identical to strchr()
  */
@@ -276,6 +280,8 @@ static inline char *switch_strchr_strict(const char *in, char find, const char *
 	switch_assert(in);
 
 	p = in;
+
+	if (!*p) return NULL;
 
 	while(p && *p) {
 		const char *a = allowed;
@@ -415,14 +421,15 @@ SWITCH_DECLARE(char *) switch_find_parameter(const char *str, const char *param,
   \param expr a string expression
   \return true or false 
 */
-static inline int switch_true(const char *expr) 
+static inline int switch_true(const char *expr)
 {
-	return ((expr && ( !strcasecmp(expr, "yes") ||	
-					   !strcasecmp(expr, "on") ||	
-					   !strcasecmp(expr, "true") ||	
-					   !strcasecmp(expr, "enabled") ||	
-					   !strcasecmp(expr, "active") ||	
-					   !strcasecmp(expr, "allow") ||					
+	return ((expr && ( !strcasecmp(expr, "yes") ||
+					   !strcasecmp(expr, "on") ||
+					   !strcasecmp(expr, "true") ||
+					   !strcasecmp(expr, "t") ||
+					   !strcasecmp(expr, "enabled") ||
+					   !strcasecmp(expr, "active") ||
+					   !strcasecmp(expr, "allow") ||
 					   (switch_is_number(expr) && atoi(expr)))) ? SWITCH_TRUE : SWITCH_FALSE);
 }
 
@@ -430,6 +437,7 @@ static inline int switch_true(const char *expr)
 ((( !strcasecmp(expr, "yes") ||\
 !strcasecmp(expr, "on") ||\
 !strcasecmp(expr, "true") ||\
+!strcasecmp(expr, "t") ||\
 !strcasecmp(expr, "enabled") ||\
 !strcasecmp(expr, "active") ||\
 !strcasecmp(expr, "allow") ||\
@@ -445,6 +453,7 @@ static inline int switch_false(const char *expr)
 	return ((expr && ( !strcasecmp(expr, "no") ||
 					   !strcasecmp(expr, "off") ||
 					   !strcasecmp(expr, "false") ||
+					   !strcasecmp(expr, "f") ||
 					   !strcasecmp(expr, "disabled") ||
 					   !strcasecmp(expr, "inactive") ||
 					   !strcasecmp(expr, "disallow") ||
@@ -457,13 +466,26 @@ SWITCH_DECLARE(switch_status_t) switch_resolve_host(const char *host, char *buf,
 
 /*!
   \brief find local ip of the box
-  \param buf the buffer to write the ip adress found into
+  \param buf the buffer to write the ip address found into
   \param len the length of the buf
+  \param mask the CIDR found (AF_INET only)
   \param family the address family to return (AF_INET or AF_INET6)
   \return SWITCH_STATUS_SUCCESSS for success, otherwise failure
 */
 SWITCH_DECLARE(switch_status_t) switch_find_local_ip(_Out_opt_bytecapcount_(len)
 													 char *buf, _In_ int len, _In_opt_ int *mask, _In_ int family);
+
+/*!
+  \brief find primary ip of the specified interface
+  \param buf the buffer to write the ip address found into
+  \param len the length of the buf
+  \param mask the CIDR found (AF_INET only)
+  \param ifname interface name to check
+  \param family the address family to return (AF_INET or AF_INET6)
+  \return SWITCH_STATUS_SUCCESSS for success, otherwise failure
+*/
+SWITCH_DECLARE(switch_status_t) switch_find_interface_ip(_Out_opt_bytecapcount_(len)
+													 char *buf, _In_ int len, _In_opt_ int *mask, _In_ const char *ifname, _In_ int family);
 
 /*!
   \brief find the char representation of an ip adress
@@ -603,7 +625,7 @@ static inline char *switch_sanitize_number(char *number)
 
 	while ((q = strrchr(p, '@')))
 		*q = '\0';
-
+	
 	for (i = 0; i < (int) strlen(warp); i++) {
 		while (p && (q = strchr(p, warp[i])))
 			p = q + 1;
@@ -898,13 +920,23 @@ SWITCH_DECLARE(const char *) switch_cut_path(const char *in);
 
 SWITCH_DECLARE(char *) switch_string_replace(const char *string, const char *search, const char *replace);
 SWITCH_DECLARE(switch_status_t) switch_string_match(const char *string, size_t string_len, const char *search, size_t search_len);
+SWITCH_DECLARE(int) switch_strcasecmp_any(const char *str, ...);
 
 /*!
   \brief Quote shell argument
   \param string the string to quote (example: a ' b"' c)
-  \return the quoted string (gives: 'a '\'' b"'\'' c' for unices, "a ' b ' c" for MS Windows)
+  \return the quoted string (gives: 'a '\'' b"'\'' c' for unices, "a ' b ' c" for MS Windows), should be freed
 */
 SWITCH_DECLARE(char *) switch_util_quote_shell_arg(const char *string);
+
+/*!
+  \brief Quote shell argument, allocating from pool if provided
+  \param string the string to quote (example: a ' b"' c)
+  \param pool a memory pool to use
+  \return the quoted string (gives: 'a '\'' b"'\'' c' for unices, "a ' b ' c" for MS Windows), if pool not provided, returned value should be freed
+*/
+SWITCH_DECLARE(char *) switch_util_quote_shell_arg_pool(const char *string, switch_memory_pool_t *pool);
+
 
 #define SWITCH_READ_ACCEPTABLE(status) (status == SWITCH_STATUS_SUCCESS || status == SWITCH_STATUS_BREAK)
 SWITCH_DECLARE(char *) switch_url_encode(const char *url, char *buf, size_t len);
@@ -919,11 +951,19 @@ SWITCH_DECLARE(char *) switch_find_end_paren(const char *s, char open, char clos
 	 static inline switch_bool_t switch_is_file_path(const char *file)
 {
 	const char *e;
-	int r;
+	int r, x;
 
-	if (*file == '[' && *(file + 1) == *SWITCH_PATH_SEPARATOR) {
-		if ((e = switch_find_end_paren(file, '[', ']'))) {
-			file = e + 1;
+	for (x = 0; x < 2; x++) {
+		if (*file == '[' && *(file + 1) == *SWITCH_PATH_SEPARATOR) {
+			if ((e = switch_find_end_paren(file, '[', ']'))) {
+				file = e + 1;
+			}
+		} else if (*file == '{') {
+			if ((e = switch_find_end_paren(file, '{', '}'))) {
+				file = e + 1;
+			}
+		} else {
+			break;
 		}
 	}
 #ifdef WIN32
@@ -1025,5 +1065,5 @@ SWITCH_END_EXTERN_C
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

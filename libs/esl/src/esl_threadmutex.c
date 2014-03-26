@@ -148,8 +148,10 @@ ESL_DECLARE(esl_status_t) esl_mutex_create(esl_mutex_t **mutex)
 #ifdef WIN32
 	InitializeCriticalSection(&check->mutex);
 #else
-	if (pthread_mutexattr_init(&attr))
+	if (pthread_mutexattr_init(&attr)) {
+		free(check);
 		goto done;
+	}
 
 	if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE))
 		goto fail;
@@ -161,6 +163,7 @@ ESL_DECLARE(esl_status_t) esl_mutex_create(esl_mutex_t **mutex)
 
  fail:
 	pthread_mutexattr_destroy(&attr);
+	free(check);
 	goto done;
 
  success:
@@ -235,5 +238,5 @@ ESL_DECLARE(esl_status_t) esl_mutex_unlock(esl_mutex_t *mutex)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

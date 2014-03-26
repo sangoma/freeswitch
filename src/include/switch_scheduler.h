@@ -43,9 +43,11 @@ SWITCH_BEGIN_EXTERN_C
 	int64_t created;
 	int64_t runtime;
 	uint32_t cmd_id;
+	uint32_t repeat;
 	char *group;
 	void *cmd_arg;
 	uint32_t task_id;
+	unsigned long hash;
 };
 
 
@@ -101,5 +103,5 @@ SWITCH_END_EXTERN_C
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

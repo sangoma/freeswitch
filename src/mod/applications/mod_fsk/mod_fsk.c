@@ -370,7 +370,7 @@ SWITCH_STANDARD_APP(fsk_display_function)
 	const char *cid_name, *cid_num;
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	switch_core_session_message_t *msg;
-	switch_core_session_t *psession, *usession = NULL;
+	switch_core_session_t *psession = NULL, *usession = NULL;
 	char *flags = (char *) data;
 
 	cid_name = switch_channel_get_variable(channel, "fsk_phone_name");
@@ -484,5 +484,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_fsk_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet
  */

@@ -9,6 +9,20 @@ void eslSetLogLevel(int level)
 	esl_global_set_default_logger(level);
 }
 
+ESLconnection::ESLconnection(const char *host, const int port, const char *password)
+{
+	connection_construct_common();
+
+	esl_connect(&handle, host, port, NULL, password);
+}
+
+ESLconnection::ESLconnection(const char *host, const int port, const char *user, const char *password)
+{
+	connection_construct_common();
+
+	esl_connect(&handle, host, port, user, password);
+}
+
 ESLconnection::ESLconnection(const char *host, const char *port, const char *password)
 {
 	connection_construct_common();
@@ -36,10 +50,9 @@ ESLconnection::ESLconnection(int socket)
 
 ESLconnection::~ESLconnection()
 {
-	if (handle.connected) {
+	if (!handle.destroyed) {
 		esl_disconnect(&handle);
 	}
-
 }
 
 int ESLconnection::socketDescriptor()
@@ -54,7 +67,7 @@ int ESLconnection::socketDescriptor()
 
 int ESLconnection::disconnect()
 {
-	if (handle.connected) {
+	if (!handle.destroyed) {
         return esl_disconnect(&handle);
     }
 
@@ -505,3 +518,14 @@ const char *ESLevent::getType(void)
 	
 	return (char *) "invalid";
 }
+
+/* For Emacs:
+ * Local Variables:
+ * mode:c++
+ * indent-tabs-mode:t
+ * tab-width:4
+ * c-basic-offset:4
+ * End:
+ * For VIM:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
+ */

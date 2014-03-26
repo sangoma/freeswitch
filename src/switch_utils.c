@@ -122,6 +122,26 @@ SWITCH_DECLARE(switch_status_t) switch_frame_free(switch_frame_t **frame)
 	return SWITCH_STATUS_SUCCESS;
 }
 
+SWITCH_DECLARE(int) switch_strcasecmp_any(const char *str, ...)
+{
+	va_list ap;
+	const char *next_str = 0;
+	int r = 0;
+
+	va_start(ap, str);
+
+	while ((next_str = va_arg(ap, const char *))) {
+		if (!strcasecmp(str, next_str)) {
+			r = 1;
+			break;
+		}
+	}
+	
+	va_end(ap);
+
+	return r;
+}
+
 
 SWITCH_DECLARE(char *) switch_find_parameter(const char *str, const char *param, switch_memory_pool_t *pool)
 {
@@ -153,8 +173,6 @@ SWITCH_DECLARE(char *) switch_find_parameter(const char *str, const char *param,
 			} else {
 				r = malloc(mlen);
 			}
-
-			*(r + mlen) = '\0';
 
 			switch_snprintf(r, mlen, "%s", ptr);
 
@@ -648,6 +666,9 @@ SWITCH_DECLARE(switch_status_t) switch_b64_encode(unsigned char *in, switch_size
 
 		while (l >= 6) {
 			out[bytes++] = switch_b64_table[(b >> (l -= 6)) % 64];
+			if (bytes >= (int)olen - 1) {
+				goto end;
+			}
 			if (++y != 72) {
 				continue;
 			}
@@ -660,10 +681,14 @@ SWITCH_DECLARE(switch_status_t) switch_b64_encode(unsigned char *in, switch_size
 		out[bytes++] = switch_b64_table[((b % 16) << (6 - l)) % 64];
 	}
 	if (l != 0) {
-		while (l < 6) {
+		while (l < 6 && bytes < (int)olen - 1) {
 			out[bytes++] = '=', l += 2;
 		}
 	}
+
+  end:
+
+	out[bytes] = '\0';
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -884,11 +909,17 @@ SWITCH_DECLARE(switch_bool_t) switch_simple_email(const char *to,
 	if (zstr(from)) {
 		from = "freeswitch";
 	}
+
+	{
+		char *to_arg = switch_util_quote_shell_arg(to);
+		char *from_arg = switch_util_quote_shell_arg(from);
 #ifdef WIN32
-	switch_snprintf(buf, B64BUFFLEN, "\"\"%s\" -f %s %s %s < \"%s\"\"", runtime.mailer_app, from, runtime.mailer_app_args, to, filename);
+		switch_snprintf(buf, B64BUFFLEN, "\"\"%s\" -f %s %s %s < \"%s\"\"", runtime.mailer_app, from_arg, runtime.mailer_app_args, to_arg, filename);
 #else
-	switch_snprintf(buf, B64BUFFLEN, "/bin/cat %s | %s -f %s %s %s", filename, runtime.mailer_app, from, runtime.mailer_app_args, to);
+		switch_snprintf(buf, B64BUFFLEN, "/bin/cat %s | %s -f %s %s %s", filename, runtime.mailer_app, from_arg, runtime.mailer_app_args, to_arg);
 #endif
+		switch_safe_free(to_arg); switch_safe_free(from_arg);
+	}
 	if (switch_system(buf, SWITCH_TRUE) < 0) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unable to execute command: %s\n", buf);
 		err = "execute error";
@@ -1231,7 +1262,7 @@ static int get_netmask(struct sockaddr_in *me, int *mask)
 		struct sockaddr_in *s = (struct sockaddr_in *) i->ifa_addr;
 		struct sockaddr_in *m = (struct sockaddr_in *) i->ifa_netmask;
 
-		if (s && m && s->sin_addr.s_addr == me->sin_addr.s_addr) {
+		if (s && m && s->sin_family == AF_INET && s->sin_addr.s_addr == me->sin_addr.s_addr) {
 			*mask = m->sin_addr.s_addr;
 			freeifaddrs(ifaddrs);
 			return 0;
@@ -1465,7 +1496,9 @@ SWITCH_DECLARE(switch_status_t) switch_find_local_ip(char *buf, int len, int *ma
 			remote.sin_port = htons(4242);
 
 			memset(&iface_out, 0, sizeof(iface_out));
-			tmp_socket = socket(AF_INET, SOCK_DGRAM, 0);
+			if ( (tmp_socket = socket(AF_INET, SOCK_DGRAM, 0)) == -1 ) {
+				goto doh;
+			}
 
 			if (setsockopt(tmp_socket, SOL_SOCKET, SO_BROADCAST, &on, sizeof(on)) == -1) {
 				goto doh;
@@ -1503,7 +1536,9 @@ SWITCH_DECLARE(switch_status_t) switch_find_local_ip(char *buf, int len, int *ma
 			remote.sin6_port = htons(4242);
 
 			memset(&iface_out, 0, sizeof(iface_out));
-			tmp_socket = socket(AF_INET6, SOCK_DGRAM, 0);
+			if ( (tmp_socket = socket(AF_INET6, SOCK_DGRAM, 0)) == -1 ) {
+				goto doh;
+			}
 
 			if (connect(tmp_socket, (struct sockaddr *) &remote, sizeof(remote)) == -1) {
 				goto doh;
@@ -1533,6 +1568,61 @@ SWITCH_DECLARE(switch_status_t) switch_find_local_ip(char *buf, int len, int *ma
 
 	return status;
 }
+
+#ifdef HAVE_GETIFADDRS
+# include <ifaddrs.h>
+# include <net/if.h>
+#endif
+SWITCH_DECLARE(switch_status_t) switch_find_interface_ip(char *buf, int len, int *mask, const char *ifname, int family)
+{
+        switch_status_t status = SWITCH_STATUS_FALSE;
+
+#ifdef HAVE_GETIFADDRS
+
+	struct ifaddrs *addrs, *addr;
+
+	getifaddrs(&addrs);
+	for(addr = addrs; addr; addr = addr->ifa_next)
+	{
+		if (!(addr->ifa_flags & IFF_UP)) continue; // Address is not UP
+		if (!addr->ifa_addr) continue; // No address set
+		if (!addr->ifa_netmask) continue; // No netmask set
+		if (family != AF_UNSPEC && addr->ifa_addr->sa_family != family) continue; // Not the address family we're looking for
+		if (strcmp(addr->ifa_name, ifname)) continue; // Not the interface we're looking for
+
+		switch(addr->ifa_addr->sa_family) {
+		case AF_INET:
+			inet_ntop(AF_INET, &( ((struct sockaddr_in*)(addr->ifa_addr))->sin_addr ), buf, len - 1);
+			break;
+		case AF_INET6:
+			inet_ntop(AF_INET6, &( ((struct sockaddr_in6*)(addr->ifa_addr))->sin6_addr ), buf, len - 1);
+			break;
+		default:
+			continue;
+		}
+
+		if (mask && addr->ifa_netmask->sa_family == AF_INET) {
+			*mask = ((struct sockaddr_in*)(addr->ifa_addr))->sin_addr.s_addr;
+		}
+
+		status = SWITCH_STATUS_SUCCESS;
+		break;
+	}
+	freeifaddrs(addrs);
+
+#elif defined(__linux__)
+
+	// TODO Not implemented, contributions welcome.
+
+#elif defined(WIN32)
+
+	// TODO Not implemented, contributions welcome.
+
+#endif
+
+	return status;
+}
+
 
 SWITCH_DECLARE(switch_time_t) switch_str_time(const char *in)
 {
@@ -2048,7 +2138,7 @@ SWITCH_DECLARE(char *) switch_escape_string(const char *in, char *out, switch_si
 
 SWITCH_DECLARE(char *) switch_escape_string_pool(const char *in, switch_memory_pool_t *pool)
 {
-	int len = strlen(in) * 2;
+	int len = strlen(in) * 2 + 1;
 	char *buf = switch_core_alloc(pool, len);
 	return switch_escape_string(in, buf, len);
 }
@@ -2318,13 +2408,38 @@ SWITCH_DECLARE(char *) switch_string_replace(const char *string, const char *sea
 
 SWITCH_DECLARE(char *) switch_util_quote_shell_arg(const char *string)
 {
+	return switch_util_quote_shell_arg_pool(string, NULL);
+}
+
+SWITCH_DECLARE(char *) switch_util_quote_shell_arg_pool(const char *string, switch_memory_pool_t *pool)
+{
 	size_t string_len = strlen(string);
 	size_t i;
 	size_t n = 0;
-	size_t dest_len = string_len + 1;	/* +1 for the opening quote  */
-	char *dest, *tmp;
+	size_t dest_len = 0;
+	char *dest;
 
-	dest = (char *) malloc(sizeof(char) * dest_len);
+	/* first pass through, figure out how large to make the allocation */
+	dest_len = strlen(string) + 1; /* string + null */
+	dest_len += 1; /* opening quote */
+	for (i = 0; i < string_len; i++) {
+		switch (string[i]) {
+#ifndef WIN32
+		case '\'':
+			/* We replace ' by sq backslace sq sq, so need 3 additional bytes */
+			dest_len += 3;
+			break;
+#endif
+		}
+	}
+	dest_len += 1; /* closing quote */
+
+	/* if we're given a pool, allocate from it, otherwise use malloc */
+	if (pool) {
+		dest = switch_core_alloc(pool, sizeof(char) * dest_len);
+	} else {
+		dest = (char *) malloc(sizeof(char) * dest_len);
+	}
 	switch_assert(dest);
 
 #ifdef WIN32
@@ -2342,11 +2457,7 @@ SWITCH_DECLARE(char *) switch_util_quote_shell_arg(const char *string)
 			break;
 #else
 		case '\'':
-			/* We replace ' by '\'' */
-			dest_len += 3;
-			tmp = (char *) realloc(dest, sizeof(char) * (dest_len));
-			switch_assert(tmp);
-			dest = tmp;
+			/* We replace ' by sq backslash sq sq */
 			dest[n++] = '\'';
 			dest[n++] = '\\';
 			dest[n++] = '\'';
@@ -2358,10 +2469,6 @@ SWITCH_DECLARE(char *) switch_util_quote_shell_arg(const char *string)
 		}
 	}
 
-	dest_len += 2;				/* +2 for the closing quote and the null character */
-	tmp = (char *) realloc(dest, sizeof(char) * (dest_len));
-	switch_assert(tmp);
-	dest = tmp;
 #ifdef WIN32
 	dest[n++] = '"';
 #else
@@ -2997,44 +3104,25 @@ SWITCH_DECLARE(int) switch_tod_cmp(const char *exp, int val)
 
 SWITCH_DECLARE(int) switch_split_user_domain(char *in, char **user, char **domain)
 {
-	char *p = NULL, *h = NULL, *u = in;
+	char *p = NULL, *h = NULL, *u = NULL;
 
-	if (!in) {
-		return 0;
-	}
+	if (!in) return 0;
 
-	/* First isolate the host part from the user part */
-	if ((h = strchr(u, '@'))) {
-		*h++ = '\0';
-	}
+	/* Remove URL scheme */
+	if (!strncasecmp(in, "sip:", 4)) in += 4;
+	else if (!strncasecmp(in, "sips:", 5)) in += 5;
 
-	/* Clean out the user part of its protocol prefix (if any) */
-	if ((p = strchr(u, ':'))) {
-		*p++ = '\0';
-		u = p;
-	}
+	/* Isolate the host part from the user part */
+	if ((h = in, p = strchr(h, '@'))) *p = '\0', u = in, h = p+1;
 
 	/* Clean out the host part of any suffix */
-	if (h) {
-		if ((p = strchr(h, ':'))) {
-			*p = '\0';
+	for (p = h; *p; p++)
+		if (*p == ':' || *p == ';' || *p == ' ') {
+			*p = '\0'; break;
 		}
 
-		if ((p = strchr(h, ';'))) {
-			*p = '\0';
-		}
-
-		if ((p = strchr(h, ' '))) {
-			*p = '\0';
-		}
-	}
-	if (user) {
-		*user = u;
-	}
-	if (domain) {
-		*domain = h;
-	}
-
+	if (user) *user = u;
+	if (domain) *domain = h;
 	return 1;
 }
 
@@ -3144,5 +3232,5 @@ SWITCH_DECLARE(char *) switch_strerror_r(int errnum, char *buf, switch_size_t bu
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

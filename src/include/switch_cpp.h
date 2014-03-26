@@ -90,6 +90,7 @@ SWITCH_DECLARE(bool) email(char *to, char *from, char *headers = NULL, char *bod
 											const char *short_greeting_sound,
 											const char *invalid_sound,
 											const char *exit_sound,
+											const char *transfer_sound,
 											const char *confirm_macro,
 											const char *confirm_key,
 											const char *tts_engine,
@@ -178,6 +179,7 @@ SWITCH_DECLARE(bool) email(char *to, char *from, char *headers = NULL, char *bod
      class EventConsumer {
 	 protected:
 		 switch_memory_pool_t *pool;
+		 int ready;
 	 public:
 		 switch_queue_t *events;
 		 switch_event_types_t e_event_id;
@@ -191,6 +193,7 @@ SWITCH_DECLARE(bool) email(char *to, char *from, char *headers = NULL, char *bod
 		 SWITCH_DECLARE_CONSTRUCTOR ~ EventConsumer();
 		 SWITCH_DECLARE(int) bind(const char *event_name, const char *subclass_name = "");
 		 SWITCH_DECLARE(Event *) pop(int block = 0, int timeout = 0);
+		 SWITCH_DECLARE(void) cleanup();
 	 };
 
 #ifdef SWIG
@@ -284,6 +287,7 @@ SWITCH_DECLARE(bool) email(char *to, char *from, char *headers = NULL, char *bod
 
 		 SWITCH_DECLARE(int) speak(char *text);
 		 SWITCH_DECLARE(void) set_tts_parms(char *tts_name, char *voice_name);
+		 SWITCH_DECLARE(void) set_tts_params(char *tts_name, char *voice_name);
 
 	/**
 	 * For timeout milliseconds, call the dtmf function set previously
@@ -385,6 +389,7 @@ SWITCH_DECLARE(bool) email(char *to, char *from, char *headers = NULL, char *bod
 
 		 virtual switch_status_t run_dtmf_callback(void *input, switch_input_type_t itype) = 0;
 
+		 SWITCH_DECLARE(void) consoleLog(char *level_str, char *msg);
 	 };
 
 
@@ -392,7 +397,7 @@ SWITCH_DECLARE(bool) email(char *to, char *from, char *headers = NULL, char *bod
 
 SWITCH_DECLARE(void) console_log(char *level_str, char *msg);
 SWITCH_DECLARE(void) console_clean_log(char *msg);
-SWITCH_DECLARE(void) msleep(unsigned ms);
+SWITCH_DECLARE(void) switch_msleep(unsigned ms);
 
 /** \brief bridge the audio of session_b into session_a
  * 
@@ -426,5 +431,5 @@ SWITCH_DECLARE_NONSTD(switch_status_t) dtmf_callback(switch_core_session_t *sess
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

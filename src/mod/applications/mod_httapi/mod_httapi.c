@@ -154,6 +154,7 @@ static struct {
 	int debug;
 	int not_found_expires;
 	int cache_ttl;
+	int abs_cache_ttl;
 } globals;
 
 
@@ -166,6 +167,7 @@ struct http_file_context {
 	int samples;
 	switch_file_handle_t fh;
 	char *cache_file;
+	char *cache_file_base;
 	char *meta_file;
 	char *lock_file;
 	char *metadata;
@@ -261,7 +263,7 @@ static switch_status_t parse_voicemail(const char *tag_name, client_t *client, s
 	if (zstr(profile)) profile = "default";
 
 	if (zstr(domain)) {
-		if ((ddom = switch_core_get_variable_dup("domain"))) {
+		if ((ddom = switch_core_get_domain(SWITCH_TRUE))) {
 			domain = ddom;
 		}
 	}
@@ -374,6 +376,7 @@ static switch_status_t parse_playback(const char *tag_name, client_t *client, sw
 	const char *action = switch_xml_attr(tag, "action");
 	const char *digit_timeout_ = switch_xml_attr(tag, "digit-timeout");
 	const char *input_timeout_ = switch_xml_attr(tag, "input-timeout");
+	const char *terminators = switch_xml_attr(tag, "terminators");
 	const char *tts_engine = NULL;
 	const char *tts_voice = NULL;
 	char *loops_ = (char *) switch_xml_attr(tag, "loops");
@@ -396,6 +399,7 @@ static switch_status_t parse_playback(const char *tag_name, client_t *client, sw
 	const char *say_gender = NULL;
 	const char *sp_engine = NULL;
 	const char *sp_grammar = NULL;
+	const char *text = NULL;
 	char *free_string = NULL;
 
 	if (!strcasecmp(tag_name, "say")) {
@@ -403,8 +407,17 @@ static switch_status_t parse_playback(const char *tag_name, client_t *client, sw
 		say_type = switch_xml_attr(tag, "type");
 		say_method = switch_xml_attr(tag, "method");
 		say_gender = switch_xml_attr(tag, "gender");
+		text = switch_xml_attr(tag, "text");
 		
-		if (zstr(say_lang) || zstr(say_type) || zstr(say_method) || zstr(body)) {
+		if (zstr(text)) {
+			if (!zstr(file)) {
+				text = file;
+			} else if (!zstr(body)) {
+				text = body;
+			}
+		}
+
+		if (zstr(say_lang) || zstr(say_type) || zstr(say_method) || zstr(text)) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "speak: missing required attributes or text! (language) (type) (method) \n");
 			return SWITCH_STATUS_FALSE;
 		}
@@ -414,6 +427,15 @@ static switch_status_t parse_playback(const char *tag_name, client_t *client, sw
 	} else if (!strcasecmp(tag_name, "speak")) {
 		tts_engine = switch_xml_attr(tag, "engine");
 		tts_voice = switch_xml_attr(tag, "voice");
+		text = switch_xml_attr(tag, "text");
+
+		if (zstr(text)) {
+			if (!zstr(file)) {
+				text = file;
+			} else if (!zstr(body)) {
+				text = body;
+			}
+		}
 
 		if (zstr(tts_engine)) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "speak: missing engine attribute!\n");
@@ -422,8 +444,10 @@ static switch_status_t parse_playback(const char *tag_name, client_t *client, sw
 		speak = 1;
 	} else if (!strcasecmp(tag_name, "pause")) {
 		const char *ms_ = switch_xml_attr(tag, "milliseconds");
-		pause = atoi(ms_);
-		if (pause < 0) pause = 1000;
+		if (!zstr(ms_)) {
+			pause = atoi(ms_);
+		}
+		if (pause <= 0) pause = 1000;
 	} else if (!strcasecmp(tag_name, "playback")) {
 		sp_engine = switch_xml_attr(tag, "asr-engine");
 		sp_grammar = switch_xml_attr(tag, "asr-grammar");
@@ -469,7 +493,7 @@ static switch_status_t parse_playback(const char *tag_name, client_t *client, sw
 			}
 			say = 1;
 
-			body = free_string;
+			text = free_string;
 			switch_ivr_play_file(client->session, NULL, "voicemail/vm-person.wav", &nullargs);
 			
 		}
@@ -538,6 +562,10 @@ static switch_status_t parse_playback(const char *tag_name, client_t *client, sw
 		}
 		
 		switch_ivr_dmachine_set_realm(dmachine, realm);
+		if (!zstr(terminators)) {
+			switch_ivr_dmachine_set_terminators(dmachine, terminators);
+		}
+
 		myargs.dmachine = dmachine;
 		args = &myargs;
 	}
@@ -554,9 +582,9 @@ static switch_status_t parse_playback(const char *tag_name, client_t *client, sw
 
 	do {
 		if (speak) {
-			status = switch_ivr_speak_text(client->session, tts_engine, tts_voice, (char *)file, args);
+			status = switch_ivr_speak_text(client->session, tts_engine, tts_voice, (char *)text, args);
 		} else if (say) {
-			status = switch_ivr_say(client->session, body, say_lang, say_type, say_method, say_gender, args);
+			status = switch_ivr_say(client->session, (char *)text, say_lang, say_type, say_method, say_gender, args);
 		} else if (play) {
 			status = switch_ivr_play_file(client->session, NULL, file, args);
 		} else if (speech) {
@@ -744,6 +772,14 @@ static switch_status_t parse_dial(const char *tag_name, client_t *client, switch
 
 		switch_core_session_execute_application(client->session, "bridge", str);
 	} else {
+		if (!zstr(cid_name)) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Changing Caller-ID Name to: %s\n", cid_name);
+			switch_channel_set_variable(client->channel, "effective_caller_id_name", cid_name);
+		}
+		if (!zstr(cid_number)) {
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Changing Caller-ID Number to: %s\n", cid_number);
+			switch_channel_set_variable(client->channel, "effective_caller_id_number", cid_number);
+		}
 		switch_ivr_session_transfer(client->session, body, dp, context);
 	}
 
@@ -841,6 +877,26 @@ static switch_status_t parse_hangup(const char *tag_name, client_t *client, swit
 	return SWITCH_STATUS_FALSE;
 }
 
+static switch_status_t parse_answer(const char *tag_name, client_t *client, switch_xml_t tag, const char *body)
+{
+
+	if (!strcasecmp(tag_name, "answer")) {
+		const char *conf = switch_xml_attr(tag, "is-conference");
+
+		if (conf && switch_true(conf)) {
+			switch_channel_set_flag(client->channel, CF_CONFERENCE);
+		}
+
+		switch_channel_answer(client->channel);
+	} else if (!strcasecmp(tag_name, "preAnswer")) {
+		switch_channel_pre_answer(client->channel);
+	} else if (!strcasecmp(tag_name, "ringReady")) {
+		switch_channel_ring_ready(client->channel);
+	}
+
+	return SWITCH_STATUS_FALSE;
+}
+
 static switch_status_t parse_record_call(const char *tag_name, client_t *client, switch_xml_t tag, const char *body)
 {
 	const char *limit_ = switch_xml_attr(tag, "limit");
@@ -886,6 +942,7 @@ static switch_status_t parse_record(const char *tag_name, client_t *client, swit
 	const char *action = switch_xml_attr(tag, "action");
 	const char *sub_action = NULL;
 	const char *digit_timeout_ = switch_xml_attr(tag, "digit-timeout");
+	const char *terminators = switch_xml_attr(tag, "terminators");
 	char *loops_ = (char *) switch_xml_attr(tag, "loops");
 	int loops = 0;
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
@@ -1003,6 +1060,10 @@ static switch_status_t parse_record(const char *tag_name, client_t *client, swit
 		}
 		
 		switch_ivr_dmachine_set_realm(dmachine, realm);
+		if (!zstr(terminators)) {
+			switch_ivr_dmachine_set_terminators(dmachine, terminators);
+		}
+
 		myargs.dmachine = dmachine;
 		args = &myargs;
 	}
@@ -1222,16 +1283,18 @@ static size_t file_callback(void *ptr, size_t size, size_t nmemb, void *data)
 {
 	register unsigned int realsize = (unsigned int) (size * nmemb);
 	client_t *client = data;
+	char *zero = "\0";
 
 	client->bytes += realsize;
 
-	if (client->bytes > client->max_bytes) {
+	if (client->bytes > client->max_bytes - 1) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Oversized file detected [%d bytes]\n", (int) client->bytes);
 		client->err = 1;
 		return 0;
 	}
 
 	switch_buffer_write(client->buffer, ptr, realsize);
+	switch_buffer_write(client->buffer, zero, 1);
 	
 	return realsize;
 }
@@ -1412,7 +1475,6 @@ static switch_status_t httapi_sync(client_t *client)
 
 	if (!put_file) {
 		switch_curl_process_form_post_params(client->params, curl_handle, &formpost);	
-		get_style_method = 1;
 	}
 
 	if (formpost) {
@@ -1568,6 +1630,8 @@ static switch_status_t httapi_sync(client_t *client)
 	if (client->profile->cookie_file) {
 		switch_curl_easy_setopt(curl_handle, CURLOPT_COOKIEJAR, client->profile->cookie_file);
 		switch_curl_easy_setopt(curl_handle, CURLOPT_COOKIEFILE, client->profile->cookie_file);
+	} else {
+		switch_curl_easy_setopt(curl_handle, CURLOPT_COOKIE, "");
 	}
 
 	if (client->profile->bind_local) {
@@ -1640,6 +1704,14 @@ static switch_status_t do_config(void)
 
 				if (tmp > -1) {
 					globals.cache_ttl = tmp;
+				} else {
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Invalid value [%s]for file-cache-ttl\n", val);
+				}
+			} else if (!strcasecmp(var, "abs-file-cache-ttl")) {
+				int tmp = atoi(val);
+
+				if (tmp > -1) {
+					globals.abs_cache_ttl = tmp;
 				} else {
 					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Invalid value [%s]for file-cache-ttl\n", val);
 				}
@@ -2245,9 +2317,23 @@ SWITCH_STANDARD_APP(httapi_function)
 
 /* HTTP FILE INTERFACE */
 
+static const char *find_ext(const char *in)
+{
+	const char *p = in + (strlen(in) - 1);
+	
+	while(p >= in && *p) {
+		if (*p == '/') return NULL;
+		if (*p == '.') return (p+1);
+		p--;
+	}
+
+	return NULL;
+}
+
 static char *load_cache_data(http_file_context_t *context, const char *url)
 {
-	char *ext = NULL;
+	const char *ext = NULL;
+	char *dext = NULL, *p;
 	char digest[SWITCH_MD5_DIGEST_STRING_SIZE] = { 0 };
 	char meta_buffer[1024] = "";
 	int fd;
@@ -2260,16 +2346,20 @@ static char *load_cache_data(http_file_context_t *context, const char *url)
 	}
 	
 	if (zstr(ext)) {
-		if ((ext = strrchr(url, '.'))) {
-			ext++;
-		} else {
-			ext = "wav";
-		}
+		ext = find_ext(url);
+	}
+	
+	if (ext && (p = strchr(ext, '?'))) {
+		dext = strdup(ext);
+		if ((p = strchr(dext, '?'))) {
+			*p = '\0';
+			ext = dext;
+		} else switch_safe_free(dext);
 	}
 
-	context->cache_file = switch_core_sprintf(context->pool, "%s%s%s.%s", globals.cache_path, SWITCH_PATH_SEPARATOR, digest, ext);
-	context->meta_file = switch_core_sprintf(context->pool, "%s.meta", context->cache_file);
-	context->lock_file = switch_core_sprintf(context->pool, "%s.lock", context->cache_file);
+	context->cache_file_base = switch_core_sprintf(context->pool, "%s%s%s", globals.cache_path, SWITCH_PATH_SEPARATOR, digest);
+	context->meta_file = switch_core_sprintf(context->pool, "%s%s%s.meta", globals.cache_path, SWITCH_PATH_SEPARATOR, digest);
+	context->lock_file = switch_core_sprintf(context->pool, "%s%s%s.lock", globals.cache_path, SWITCH_PATH_SEPARATOR, digest);
 
 	if (switch_file_exists(context->meta_file, context->pool) == SWITCH_STATUS_SUCCESS && ((fd = open(context->meta_file, O_RDONLY, 0)) > -1)) {
 		if ((bytes = read(fd, meta_buffer, sizeof(meta_buffer))) > 0) {
@@ -2282,9 +2372,21 @@ static char *load_cache_data(http_file_context_t *context, const char *url)
 				}
 				context->metadata = switch_core_strdup(context->pool, p);
 			}
+
+			if ((p = strrchr(context->metadata, ':'))) {
+				p++;
+				if (!zstr(p)) {
+					ext = p;
+				}
+			}
+
 		}
 		close(fd);
 	}
+
+	context->cache_file = switch_core_sprintf(context->pool, "%s%s%s%s%s", globals.cache_path, SWITCH_PATH_SEPARATOR, digest, ext ? "." : "", ext ? ext : "");
+
+	switch_safe_free(dext);
 
 	return context->cache_file;
 }
@@ -2365,11 +2467,10 @@ static switch_status_t fetch_cache_data(http_file_context_t *context, const char
 	curl_handle = switch_curl_easy_init();
 
 	switch_curl_easy_setopt(curl_handle, CURLOPT_NOSIGNAL, 1);
+	switch_curl_easy_setopt(curl_handle, CURLOPT_NOPROGRESS, 1);
 
-	if (!strncasecmp(url, "https", 5)) {
-		switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0);
-		switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 0);
-	}
+	switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYPEER, 0);
+	switch_curl_easy_setopt(curl_handle, CURLOPT_SSL_VERIFYHOST, 0);
 
 	client.max_bytes = HTTAPI_MAX_FILE_BYTES;
 
@@ -2450,17 +2551,39 @@ static switch_status_t write_meta_file(http_file_context_t *context, const char 
 	}
 
 	if (!zstr(data)) {
-		int ttl = globals.cache_ttl;
+		int ttl = globals.cache_ttl, abs_cache_ttl = globals.abs_cache_ttl;
 		const char *cc;
 		const char *p;
+		int x;
 
-		if (headers && (cc = switch_event_get_header(headers, "Cache-Control"))) {
+		if (context->url_params) {
+			if ((cc = switch_event_get_header(context->url_params, "abs_cache_control"))) {
+				x = atoi(cc);
+
+				if (x > 0) {
+					abs_cache_ttl = x;
+				}
+			} else if ((cc = switch_event_get_header(context->url_params, "cache_control"))) {
+				x = atoi(cc);
+
+				if (x > 0) {
+					ttl = x;
+				}
+			}
+		}
+
+		if (abs_cache_ttl) {
+			ttl = abs_cache_ttl;
+		} else if (headers && (cc = switch_event_get_header(headers, "Cache-Control"))) {
 			if ((p = switch_stristr("max-age=", cc))) {
 				p += 8;
 				
 				if (!zstr(p)) {
-					ttl = atoi(p);
-					if (ttl < 0) ttl = globals.cache_ttl;
+					x = atoi(p);
+
+					if (x < ttl) {
+						ttl = x;
+					}
 				}
 			}
 
@@ -2470,7 +2593,7 @@ static switch_status_t write_meta_file(http_file_context_t *context, const char 
 		}
 
 		switch_snprintf(write_data, sizeof(write_data), 
-						"%" SWITCH_TIME_T_FMT ":%s",
+						"%" TIME_T_FMT ":%s",
 						switch_epoch_time_now(NULL) + ttl,
 						data);
 		
@@ -2522,6 +2645,7 @@ static switch_status_t locate_url_file(http_file_context_t *context, const char 
 	switch_status_t status = SWITCH_STATUS_FALSE;
 	time_t now = switch_epoch_time_now(NULL);
 	char *metadata;
+	const char *ext = NULL;
 
 	load_cache_data(context, url);
 
@@ -2531,7 +2655,14 @@ static switch_status_t locate_url_file(http_file_context_t *context, const char 
 
 	lock_file(context, SWITCH_TRUE);
 
+	if (context->url_params) {
+		ext = switch_event_get_header(context->url_params, "ext");
+	}
+
 	if (!context->url_params || !switch_true(switch_event_get_header(context->url_params, "nohead"))) {
+		const char *ct = NULL;
+		const char *newext = NULL;
+
 		if ((status = fetch_cache_data(context, url, &headers, NULL)) != SWITCH_STATUS_SUCCESS) {
 			if (status == SWITCH_STATUS_NOTFOUND) {
 				unreachable = 2;
@@ -2543,17 +2674,39 @@ static switch_status_t locate_url_file(http_file_context_t *context, const char 
 			}
 		}
 		
+		if (zstr(ext) && headers && (ct = switch_event_get_header(headers, "content-type"))) {
+			if (switch_strcasecmp_any(ct, "audio/mpeg", "audio/x-mpeg", "audio/mp3", "audio/x-mp3", "audio/mpeg3", 
+									  "audio/x-mpeg3", "audio/mpg", "audio/x-mpg", "audio/x-mpegaudio", NULL)) {
+				newext = "mp3";
+			} else if (switch_strcasecmp_any(ct, "audio/wav", "audio/x-wave", "audio/wav", "audio/wave", NULL)) {
+				newext = "wav";
+			}
+		}
+
+		if (newext) {
+			ext = newext;
+		} else if (zstr(ext)) {
+			ext = find_ext(context->cache_file);
+		}
+
+
+		if (newext) {
+			context->cache_file = switch_core_sprintf(context->pool, "%s.%s", context->cache_file, newext);
+		}
+
+
 		if (switch_file_exists(context->cache_file, context->pool) != SWITCH_STATUS_SUCCESS && unreachable) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "File at url [%s] is unreachable!\n", url);
 			goto end;
 		}
 		
 		if (!unreachable && !zstr(context->metadata)) {
-			metadata = switch_core_sprintf(context->pool, "%s:%s:%s:%s",
+			metadata = switch_core_sprintf(context->pool, "%s:%s:%s:%s:%s",
 										   url,
 										   switch_event_get_header_nil(headers, "last-modified"),
 										   switch_event_get_header_nil(headers, "etag"),
-										   switch_event_get_header_nil(headers, "content-length")
+										   switch_event_get_header_nil(headers, "content-length"),
+										   ext
 										   );
 
 			if (!strcmp(metadata, context->metadata)) {
@@ -2572,11 +2725,12 @@ static switch_status_t locate_url_file(http_file_context_t *context, const char 
 	}
 
 
-	metadata = switch_core_sprintf(context->pool, "%s:%s:%s:%s",
+	metadata = switch_core_sprintf(context->pool, "%s:%s:%s:%s:%s",
 								   url,
 								   switch_event_get_header_nil(headers, "last-modified"),
 								   switch_event_get_header_nil(headers, "etag"),
-								   switch_event_get_header_nil(headers, "content-length")
+								   switch_event_get_header_nil(headers, "content-length"),
+								   ext
 								   );
 	
 	write_meta_file(context, metadata, headers);
@@ -2612,16 +2766,26 @@ static switch_status_t http_file_file_seek(switch_file_handle_t *handle, unsigne
 	return switch_core_file_seek(&context->fh, cur_sample, samples, whence);
 }
 
-static switch_status_t http_file_file_open(switch_file_handle_t *handle, const char *path)
+static switch_status_t file_open(switch_file_handle_t *handle, const char *path, int is_https)
 {
 	http_file_context_t *context;
 	char *parsed = NULL, *pdup = NULL;
+	const char *pa = NULL;
 	switch_status_t status;
+
+	if (!strncmp(path, "http://", 7)) {
+		pa = path + 7;
+	} else if (!strncmp(path, "https://", 8)) {
+		pa = path + 8;
+		is_https = 1;
+	} else {
+		pa = path;
+	}
 
 	context = switch_core_alloc(handle->memory_pool, sizeof(*context));
 	context->pool = handle->memory_pool;
 
-	pdup = switch_core_strdup(context->pool, path);
+	pdup = switch_core_strdup(context->pool, pa);
 
 	switch_event_create_brackets(pdup, '(', ')', ',', &context->url_params, &parsed, SWITCH_FALSE);
 
@@ -2632,12 +2796,15 @@ static switch_status_t http_file_file_open(switch_file_handle_t *handle, const c
 		if ((var = switch_event_get_header(context->url_params, "cache")) && !switch_true(var)) {
 			context->expires = 1;
 		}
-
 	}
 
-	if (parsed) path = parsed;
+	if (parsed) pa = parsed;
 
-	context->dest_url = switch_core_sprintf(context->pool, "http://%s", path);
+	if (is_https) {
+		context->dest_url = switch_core_sprintf(context->pool, "https://%s", pa);
+	} else {
+		context->dest_url = switch_core_sprintf(context->pool, "http://%s", pa);
+	}
 
 	if (switch_test_flag(handle, SWITCH_FILE_FLAG_WRITE)) {
 		char *ext;
@@ -2703,7 +2870,6 @@ static switch_status_t http_file_file_open(switch_file_handle_t *handle, const c
 			unlink(context->cache_file);
 			unlink(context->meta_file);
 			unlink(context->lock_file);
-			
 			return status;
 		}
 	}
@@ -2715,6 +2881,8 @@ static switch_status_t http_file_file_open(switch_file_handle_t *handle, const c
 	handle->seekable = context->fh.seekable;
 	handle->speed = context->fh.speed;
 	handle->interval = context->fh.interval;
+	handle->channels = context->fh.channels;
+	handle->flags |= SWITCH_FILE_NOMUX;
 
 	if (switch_test_flag((&context->fh), SWITCH_FILE_NATIVE)) {
 		switch_set_flag(handle, SWITCH_FILE_NATIVE);
@@ -2723,6 +2891,14 @@ static switch_status_t http_file_file_open(switch_file_handle_t *handle, const c
 	}
 
 	return SWITCH_STATUS_SUCCESS;
+}
+
+static switch_status_t http_file_file_open(switch_file_handle_t *handle, const char *path) {
+	return file_open(handle, path, 0);
+}
+
+static switch_status_t https_file_file_open(switch_file_handle_t *handle, const char *path) {
+	return file_open(handle, path, 1);
 }
 
 static switch_status_t http_file_file_close(switch_file_handle_t *handle)
@@ -2811,6 +2987,7 @@ static switch_status_t http_file_file_read(switch_file_handle_t *handle, void *d
 /* Registration */
 
 static char *http_file_supported_formats[SWITCH_MAX_CODECS] = { 0 };
+static char *https_file_supported_formats[SWITCH_MAX_CODECS] = { 0 };
 
 
 /* /HTTP FILE INTERFACE */
@@ -2819,7 +2996,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_httapi_load)
 {
 	switch_api_interface_t *httapi_api_interface;
 	switch_application_interface_t *app_interface;
-	switch_file_interface_t *file_interface;
+	switch_file_interface_t *http_file_interface;
+	switch_file_interface_t *https_file_interface;
 	
 	/* connect my internal structure to the blank pointer passed to me */
 	*module_interface = switch_loadable_module_create_module_interface(pool, modname);
@@ -2834,14 +3012,25 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_httapi_load)
 
 	http_file_supported_formats[0] = "http";
 
-	file_interface = switch_loadable_module_create_interface(*module_interface, SWITCH_FILE_INTERFACE);
-	file_interface->interface_name = modname;
-	file_interface->extens = http_file_supported_formats;
-	file_interface->file_open = http_file_file_open;
-	file_interface->file_close = http_file_file_close;
-	file_interface->file_read = http_file_file_read;
-	file_interface->file_write = http_file_write;
-	file_interface->file_seek = http_file_file_seek;
+	http_file_interface = switch_loadable_module_create_interface(*module_interface, SWITCH_FILE_INTERFACE);
+	http_file_interface->interface_name = modname;
+	http_file_interface->extens = http_file_supported_formats;
+	http_file_interface->file_open = http_file_file_open;
+	http_file_interface->file_close = http_file_file_close;
+	http_file_interface->file_read = http_file_file_read;
+	http_file_interface->file_write = http_file_write;
+	http_file_interface->file_seek = http_file_file_seek;
+
+	https_file_supported_formats[0] = "https";
+
+	https_file_interface = switch_loadable_module_create_interface(*module_interface, SWITCH_FILE_INTERFACE);
+	https_file_interface->interface_name = modname;
+	https_file_interface->extens = https_file_supported_formats;
+	https_file_interface->file_open = https_file_file_open;
+	https_file_interface->file_close = http_file_file_close;
+	https_file_interface->file_read = http_file_file_read;
+	https_file_interface->file_write = http_file_write;
+	https_file_interface->file_seek = http_file_file_seek;
 	
 	switch_snprintf(globals.cache_path, sizeof(globals.cache_path), "%s%shttp_file_cache", SWITCH_GLOBAL_dirs.storage_dir, SWITCH_PATH_SEPARATOR);
 	switch_dir_make_recursive(globals.cache_path, SWITCH_DEFAULT_DIR_PERMS, pool);
@@ -2854,6 +3043,9 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_httapi_load)
 	bind_parser("sms", parse_sms);
 	bind_parser("dial", parse_dial);
 	bind_parser("pause", parse_playback);
+	bind_parser("answer", parse_answer);
+	bind_parser("preAnswer", parse_answer);
+	bind_parser("ringReady", parse_answer);
 	bind_parser("hangup", parse_hangup);
 	bind_parser("record", parse_record);
 	bind_parser("recordCall", parse_record_call);
@@ -2927,7 +3119,7 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_httapi_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */
 
 

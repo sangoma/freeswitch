@@ -184,7 +184,7 @@ static switch_status_t handle_msg_fetch_reply(listener_t *listener, ei_x_buff * 
 					/* alright, we've got the lock and we're the first to reply */
 
 					/* clone the reply so it doesn't get destroyed on us */
-					ei_x_buff *nbuf = malloc(sizeof(nbuf));
+					ei_x_buff *nbuf = malloc(sizeof(*nbuf));
 					nbuf->buff = malloc(buf->buffsz);
 					memcpy(nbuf->buff, buf->buff, buf->buffsz);
 					nbuf->index = buf->index;
@@ -766,6 +766,10 @@ static switch_status_t handle_msg_sendevent(listener_t *listener, int arity, ei_
 					ei_x_encode_atom(rbuf, "ok");
 				}
 			}
+			/* If the event wasn't successfully fired, or failed for any other reason, then make sure not to leak it. */
+			if ( event ) {
+				switch_event_destroy(&event);
+			}
 		}
 	}
 	return SWITCH_STATUS_SUCCESS;
@@ -1333,5 +1337,5 @@ int handle_msg(listener_t *listener, erlang_msg * msg, ei_x_buff * buf, ei_x_buf
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

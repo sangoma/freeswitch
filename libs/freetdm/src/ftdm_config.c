@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2012, Anthony Minessale II
+ * Copyright (c) 2007-2014, Anthony Minessale II
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -77,7 +77,7 @@ int ftdm_config_open_file(ftdm_config_t *cfg, const char *file_path)
 
 	memset(cfg, 0, sizeof(*cfg));
 	cfg->lockto = -1;
-	ftdm_log(FTDM_LOG_DEBUG, "Configuration file is %s.\n", path);
+	ftdm_log(FTDM_LOG_DEBUG, "Configuration file is %s\n", path);
 	f = fopen(path, "r");
 
 	if (!f) {
@@ -379,5 +379,5 @@ FT_DECLARE(char *) ftdm_build_dso_path(const char *name, char *path, ftdm_size_t
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

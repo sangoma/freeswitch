@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2012, Anthony Minessale II, Nenad Corbic
+ * Copyright (c) 2007-2014, Anthony Minessale II, Nenad Corbic
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -144,5 +144,5 @@ int sangomabc_exec_commandp(sangomabc_connection_t *pcon, int span, int chan, in
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

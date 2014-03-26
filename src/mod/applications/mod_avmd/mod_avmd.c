@@ -187,13 +187,11 @@ static switch_bool_t avmd_callback(switch_media_bug_t * bug, void *user_data, sw
         break;
 
     case SWITCH_ABC_TYPE_READ_PING:
-        break;
     case SWITCH_ABC_TYPE_CLOSE:
-		
-        break;
     case SWITCH_ABC_TYPE_READ:
-        break;
     case SWITCH_ABC_TYPE_WRITE:
+    case SWITCH_ABC_TYPE_TAP_NATIVE_READ:
+    case SWITCH_ABC_TYPE_TAP_NATIVE_WRITE:
         break;
 
     case SWITCH_ABC_TYPE_READ_REPLACE:
@@ -541,6 +539,8 @@ static void avmd_process(avmd_session_t *session, switch_frame_t *frame)
 		/*! If variance is less than threshold then we have detection */
             	if(v < VARIANCE_THRESHOLD){
 
+				switch_channel_execute_on(switch_core_session_get_channel(session->session), "execute_on_avmd_beep");
+
 				/*! Throw an event to FreeSWITCH */
                 status = switch_event_create_subclass(&event, SWITCH_EVENT_CUSTOM, AVMD_EVENT_BEEP);
                 if(status != SWITCH_STATUS_SUCCESS) {
@@ -583,6 +583,6 @@ static void avmd_process(avmd_session_t *session, switch_frame_t *frame)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */
 

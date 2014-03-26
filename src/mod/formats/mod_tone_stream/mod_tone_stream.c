@@ -93,11 +93,8 @@ static switch_status_t silence_stream_file_read(switch_file_handle_t *handle, vo
 		sh->samples -= *len;
 	}
 
-	if (sh->silence) {
-		switch_generate_sln_silence((int16_t *) data, *len, sh->silence);
-	} else {
-		memset(data, 0, *len);
-	}
+	switch_generate_sln_silence((int16_t *) data, *len,
+								sh->silence ? sh->silence : (uint32_t)-1);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -136,10 +133,20 @@ static switch_status_t tone_stream_file_open(switch_file_handle_t *handle, const
 	switch_buffer_create_dynamic(&audio_buffer, 1024, 1024, 0);
 	switch_assert(audio_buffer);
 
-	if ((tmp = strstr(tonespec, ";loops="))) {
+	if ((tmp = (char *)switch_stristr(";loops=", tonespec))) {
 		*tmp = '\0';
-		loops = atoi(tmp + 7);
-		switch_buffer_set_loops(audio_buffer, loops);
+		tmp += 7;
+		if (tmp) {
+			loops = atoi(tmp);
+			switch_buffer_set_loops(audio_buffer, loops);
+		}
+	}
+
+	if (handle->params) {
+		if ((tmp = switch_event_get_header(handle->params, "loops"))) {
+			loops = atoi(tmp);
+			switch_buffer_set_loops(audio_buffer, loops);		
+		}
 	}
 
 	if (!handle->samplerate) {
@@ -238,5 +245,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_tone_stream_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

@@ -181,6 +181,7 @@ static switch_status_t load_config(void)
 
 	/* default facility */
 	globals.facility = DEFAULT_FACILITY;
+	globals.log_uuid = SWITCH_TRUE;
 
 	if (!(xml = switch_xml_open_cfg(cf, &cfg, NULL))) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Open of %s failed\n", cf);
@@ -257,5 +258,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_syslog_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

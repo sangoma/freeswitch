@@ -48,6 +48,11 @@
 #if defined(HAVE_MATH_H)
 #include <math.h>
 #endif
+#if defined(HAVE_STDBOOL_H)
+#include <stdbool.h>
+#else
+#include "spandsp/stdbool.h"
+#endif
 #include "floating_fudge.h"
 
 #include "spandsp/telephony.h"
@@ -70,18 +75,18 @@
 #include "spandsp/v22bis.h"
 
 #include "spandsp/private/logging.h"
+#include "spandsp/private/power_meter.h"
 #include "spandsp/private/v22bis.h"
 
 #if defined(SPANDSP_USE_FIXED_POINT)
+#define FP_SCALE(x)                     FP_Q_6_10(x)
 #define FP_SHIFT_FACTOR                 10
-#define FP_SCALE                        FP_Q_6_10
-#include "v22bis_rx_1200_fixed_rrc.h"
-#include "v22bis_rx_2400_fixed_rrc.h"
 #else
 #define FP_SCALE(x)                     (x)
-#include "v22bis_rx_1200_floating_rrc.h"
-#include "v22bis_rx_2400_floating_rrc.h"
 #endif
+
+#include "v22bis_rx_1200_rrc.h"
+#include "v22bis_rx_2400_rrc.h"
 
 #define ms_to_symbols(t)                (((t)*600)/1000)
 
@@ -110,7 +115,7 @@ The basic method used by the V.22bis receiver is:
 
         Tune the local carrier, based on the angular mismatch between the actual signal and
         the decision.
-        
+
         Tune the equalizer, based on the mismatch between the actual signal and the decision.
 
         Descramble and output the bits represented by the decision.
@@ -307,9 +312,8 @@ static __inline__ int descramble(v22bis_state_t *s, int bit)
 {
     int out_bit;
 
-    bit &= 1;
-
     /* Descramble the bit */
+    bit &= 1;
     out_bit = (bit ^ (s->rx.scramble_reg >> 13) ^ (s->rx.scramble_reg >> 16)) & 1;
     s->rx.scramble_reg = (s->rx.scramble_reg << 1) | bit;
 
@@ -713,7 +717,7 @@ static __inline__ void process_half_baud(v22bis_state_t *s, const complexf_t *sa
                 if (s->rx.training_count >= ms_to_symbols(100 + 450))
                 {
                     span_log(&s->logging, SPAN_LOG_FLOW, "+++ starting 16 way decisions (caller)\n");
-                    s->rx.sixteen_way_decisions = TRUE;
+                    s->rx.sixteen_way_decisions = true;
                     s->rx.training = V22BIS_RX_TRAINING_STAGE_WAIT_FOR_SCRAMBLED_ONES_AT_2400;
                     s->rx.pattern_repeats = 0;
 #if defined(SPANDSP_USE_FIXED_POINT)
@@ -728,7 +732,7 @@ static __inline__ void process_half_baud(v22bis_state_t *s, const complexf_t *sa
                 if (s->rx.training_count >= ms_to_symbols(450))
                 {
                     span_log(&s->logging, SPAN_LOG_FLOW, "+++ starting 16 way decisions (answerer)\n");
-                    s->rx.sixteen_way_decisions = TRUE;
+                    s->rx.sixteen_way_decisions = true;
                     s->rx.training = V22BIS_RX_TRAINING_STAGE_WAIT_FOR_SCRAMBLED_ONES_AT_2400;
                     s->rx.pattern_repeats = 0;
                 }
@@ -800,7 +804,7 @@ SPAN_DECLARE_NONSTD(int) v22bis_rx(v22bis_state_t *s, const int16_t amp[], int l
     for (i = 0;  i < len;  i++)
     {
         /* Complex bandpass filter the signal, using a pair of FIRs, and RRC coeffs shifted
-           to centre at 1200Hz or 2400Hz. The filters support 12 fractional phase shifts, to 
+           to centre at 1200Hz or 2400Hz. The filters support 12 fractional phase shifts, to
            permit signal extraction very close to the middle of a symbol. */
         s->rx.rrc_filter[s->rx.rrc_filter_step] = amp[i];
         if (++s->rx.rrc_filter_step >= V22BIS_RX_FILTER_STEPS)
@@ -841,7 +845,7 @@ SPAN_DECLARE_NONSTD(int) v22bis_rx(v22bis_state_t *s, const int16_t amp[], int l
             /* Look for power exceeding the carrier on point */
             if (power < s->rx.carrier_on_power)
                 continue;
-            s->rx.signal_present = TRUE;
+            s->rx.signal_present = true;
             v22bis_report_status_change(s, SIG_STATUS_CARRIER_UP);
         }
         /* Only spend effort processing this data if the modem is not parked, after
@@ -857,9 +861,9 @@ SPAN_DECLARE_NONSTD(int) v22bis_rx(v22bis_state_t *s, const int16_t amp[], int l
             {
                 /* Only AGC during the initial symbol acquisition, and then lock the gain. */
 #if defined(SPANDSP_USE_FIXED_POINT)
-                s->rx.agc_scaling = saturate16(((int32_t) (1024.0f*1024.0f*0.18f*3.60f))/fixed_sqrt32(power));
+                s->rx.agc_scaling = saturate16(((int32_t) (FP_SCALE(0.18f)*FP_SCALE(3.60f)))/fixed_sqrt32(power));
 #else
-                s->rx.agc_scaling = 0.18f*3.60f/sqrtf(power);
+                s->rx.agc_scaling = FP_SCALE(0.18f)*FP_SCALE(3.60f)/fixed_sqrt32(power);
 #endif
             }
             /* Pulse shape while still at the carrier frequency, using a quadrature
@@ -869,7 +873,6 @@ SPAN_DECLARE_NONSTD(int) v22bis_rx(v22bis_state_t *s, const int16_t amp[], int l
             step = -s->rx.eq_put_step;
             if (step > PULSESHAPER_COEFF_SETS - 1)
                 step = PULSESHAPER_COEFF_SETS - 1;
-            s->rx.eq_put_step += PULSESHAPER_COEFF_SETS*40/(3*2);
             if (s->calling_party)
             {
 #if defined(SPANDSP_USE_FIXED_POINT)
@@ -906,6 +909,7 @@ SPAN_DECLARE_NONSTD(int) v22bis_rx(v22bis_state_t *s, const int16_t amp[], int l
             zz.re = sample.re*z.re - sample.im*z.im;
             zz.im = -sample.re*z.im - sample.im*z.re;
 #endif
+            s->rx.eq_put_step += PULSESHAPER_COEFF_SETS*40/(3*2);
             process_half_baud(s, &zz);
         }
 #if defined(SPANDSP_USE_FIXED_POINT)
@@ -954,7 +958,7 @@ int v22bis_rx_restart(v22bis_state_t *s)
     s->rx.scrambler_pattern_count = 0;
     s->rx.training = V22BIS_RX_TRAINING_STAGE_SYMBOL_ACQUISITION;
     s->rx.training_count = 0;
-    s->rx.signal_present = FALSE;
+    s->rx.signal_present = false;
 
     s->rx.carrier_phase_rate = (s->calling_party)  ?  DDS_PHASE_RATE(2400.0f)  :  DDS_PHASE_RATE(1200.0f);
     s->rx.carrier_phase = 0;
@@ -967,7 +971,7 @@ int v22bis_rx_restart(v22bis_state_t *s)
 #endif
 
     s->rx.constellation_state = 0;
-    s->rx.sixteen_way_decisions = FALSE;
+    s->rx.sixteen_way_decisions = false;
 
     equalizer_reset(s);
 

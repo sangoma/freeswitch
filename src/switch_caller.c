@@ -33,9 +33,6 @@
 #include <switch.h>
 #include <switch_caller.h>
 
-#define profile_dup(a,b,p) if (!zstr(a)) { b = switch_core_strdup(p, a); } else { b = SWITCH_BLANK_STRING; }
-#define profile_dup_clean(a,b,p) if (!zstr(a)) { b = switch_var_clean_string(switch_clean_string(switch_core_strdup(p, a)));} else { b = SWITCH_BLANK_STRING; }
-
 SWITCH_DECLARE(switch_caller_profile_t *) switch_caller_profile_new(switch_memory_pool_t *pool,
 																	const char *username,
 																	const char *dialplan,
@@ -73,6 +70,8 @@ SWITCH_DECLARE(switch_caller_profile_t *) switch_caller_profile_new(switch_memor
 	profile_dup_clean(dialplan, profile->dialplan, pool);
 	profile_dup_clean(caller_id_name, profile->caller_id_name, pool);
 	profile_dup_clean(caller_id_number, profile->caller_id_number, pool);
+	profile_dup_clean(caller_id_name, profile->orig_caller_id_name, pool);
+	profile_dup_clean(caller_id_number, profile->orig_caller_id_number, pool);
 	profile->caller_ton = SWITCH_TON_UNDEF;
 	profile->caller_numplan = SWITCH_NUMPLAN_UNDEF;
 	profile_dup_clean(network_addr, profile->network_addr, pool);
@@ -115,6 +114,8 @@ SWITCH_DECLARE(switch_caller_profile_t *) switch_caller_profile_dup(switch_memor
 	profile_dup(tocopy->caller_id_number, profile->caller_id_number, pool);
 	profile_dup(tocopy->callee_id_name, profile->callee_id_name, pool);
 	profile_dup(tocopy->callee_id_number, profile->callee_id_number, pool);
+	profile_dup(tocopy->orig_caller_id_name, profile->orig_caller_id_name, pool);
+	profile_dup(tocopy->orig_caller_id_number, profile->orig_caller_id_number, pool);
 	profile_dup(tocopy->network_addr, profile->network_addr, pool);
 	profile_dup(tocopy->ani, profile->ani, pool);
 	profile_dup(tocopy->aniii, profile->aniii, pool);
@@ -189,6 +190,12 @@ SWITCH_DECLARE(const char *) switch_caller_get_field_by_name(switch_caller_profi
 	}
 	if (!strcasecmp(name, "caller_id_number")) {
 		return caller_profile->caller_id_number;
+	}
+	if (!strcasecmp(name, "orig_caller_id_name")) {
+		return caller_profile->orig_caller_id_name;
+	}
+	if (!strcasecmp(name, "orig_caller_id_number")) {
+		return caller_profile->orig_caller_id_number;
 	}
 	if (!strcasecmp(name, "callee_id_name")) {
 		return caller_profile->callee_id_name;
@@ -315,6 +322,14 @@ SWITCH_DECLARE(void) switch_caller_profile_event_set_data(switch_caller_profile_
 	if (!zstr(caller_profile->caller_id_number)) {
 		switch_snprintf(header_name, sizeof(header_name), "%s-Caller-ID-Number", prefix);
 		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header_name, caller_profile->caller_id_number);
+	}
+	if (!zstr(caller_profile->caller_id_name)) {
+		switch_snprintf(header_name, sizeof(header_name), "%s-Orig-Caller-ID-Name", prefix);
+		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header_name, caller_profile->orig_caller_id_name);
+	}
+	if (!zstr(caller_profile->caller_id_number)) {
+		switch_snprintf(header_name, sizeof(header_name), "%s-Orig-Caller-ID-Number", prefix);
+		switch_event_add_header_string(event, SWITCH_STACK_BOTTOM, header_name, caller_profile->orig_caller_id_number);
 	}
 	if (!zstr(caller_profile->callee_id_name)) {
 		switch_snprintf(header_name, sizeof(header_name), "%s-Callee-ID-Name", prefix);
@@ -549,5 +564,5 @@ SWITCH_DECLARE(void) switch_caller_extension_add_application(switch_core_session
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

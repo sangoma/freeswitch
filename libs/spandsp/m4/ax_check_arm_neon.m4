@@ -1,7 +1,7 @@
 # @synopsis AX_CHECK_ARM_NEON
 #
 # Does the machine support the ARM NEON instruction set?
-# @version 1.0    Dec 31 2012
+# @version 1.01   Feb 11 2013
 # @author Steve Underwood
 #
 # Permission to use, copy, modify, distribute, and sell this file for any 
@@ -20,13 +20,24 @@ ac_cv_symbol_arm_neon="no"
 case "${ax_cv_c_compiler_vendor}" in
 gnu)
     save_CFLAGS="${CFLAGS}"
-    CFLAGS="${CFLAGS} -mfpu=neon"
-    AC_COMPILE_IFELSE(
+    CFLAGS="${CFLAGS} -mfpu=neon -mfloat-abi=hard"
+    AC_RUN_IFELSE(
         [AC_LANG_PROGRAM(
-            [#include <arm_neon.h>
-            int32x4_t testfunc(int16_t *a, int16_t *b)
-            {return vmull_s16(vld1_s16(a), vld1_s16(b));}],
-            [;]
+            [
+                #include <inttypes.h>
+                #include <arm_neon.h>
+
+                int32x4_t testfunc(int16_t *a, int16_t *b)
+                {
+                    return vmull_s16(vld1_s16(a), vld1_s16(b));
+                }
+            ],
+            [
+                volatile int32x4_t z;
+                int16_t x[[8]];
+                int16_t y[[8]];
+                z = testfunc(x, y);
+            ]
         )],
 
         [AC_MSG_RESULT([yes])
@@ -34,6 +45,9 @@ gnu)
          COMP_VENDOR_CXXFLAGS="-mfpu=neon $COMP_VENDOR_CXXFLAGS"
          ac_cv_symbol_arm_neon="yes"],
 
+        [AC_MSG_RESULT([no])],
+
+        dnl Assume "no" if cross-compiling
         [AC_MSG_RESULT([no])]
     )
     CFLAGS="${save_CFLAGS}"

@@ -32,6 +32,7 @@
  */
 
 #ifndef WIN32
+#undef HAVE_STDLIB_H
 #include "switch_private.h"
 #endif
 #if defined(HAVE_OPENPTY) || defined(HAVE_DEV_PTMX) || defined(HAVE_POSIX_OPENPT) || WIN32
@@ -51,6 +52,8 @@
 #include <sys/ioctl.h>
 #elif defined(__FreeBSD__)
 #include <libutil.h>
+#include <termios.h>
+#elif defined(__SunOS)
 #include <termios.h>
 #else
 #include <pty.h>
@@ -165,5 +168,5 @@ void modem_global_shutdown(void);
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

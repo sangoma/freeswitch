@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2012, Anthony Minessale II
+ * Copyright (c) 2007-2014, Anthony Minessale II
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -74,6 +74,8 @@ class ESLconnection {
  private:
 	esl_handle_t handle;
  public:
+	ESLconnection(const char *host, const int port, const char *user, const char *password);
+	ESLconnection(const char *host, const int port, const char *password);
 	ESLconnection(const char *host, const char *port, const char *user, const char *password);
 	ESLconnection(const char *host, const char *port, const char *password);
 	ESLconnection(int socket);
@@ -107,3 +109,14 @@ void eslSetLogLevel(int level);
 #endif
 
 #endif
+
+/* For Emacs:
+ * Local Variables:
+ * mode:c++
+ * indent-tabs-mode:t
+ * tab-width:4
+ * c-basic-offset:4
+ * End:
+ * For VIM:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
+ */

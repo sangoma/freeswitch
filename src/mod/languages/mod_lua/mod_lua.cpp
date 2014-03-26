@@ -32,6 +32,7 @@
 
 
 #include <switch.h>
+#include <switch_event.h>
 SWITCH_BEGIN_EXTERN_C
 #include "lua.h"
 #include <lauxlib.h>
@@ -80,7 +81,7 @@ static int traceback(lua_State * L)
 	return 1;
 }
 
-int docall(lua_State * L, int narg, int nresults, int perror)
+int docall(lua_State * L, int narg, int nresults, int perror, int fatal)
 {
 	int status;
 	int base = lua_gettop(L) - narg;	/* function index */
@@ -101,9 +102,13 @@ int docall(lua_State * L, int narg, int nresults, int perror)
 		if (!zstr(err)) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s\n", err);
 		}
-		//lua_pop(L, 1); /* pop error message from the stack */
+		
 		// pass error up to top
-		lua_error(L);
+		if (fatal) {
+			lua_error(L);
+		} else {
+			lua_pop(L, 1); /* pop error message from the stack */
+		}
 	}
 
 	return status;
@@ -122,7 +127,7 @@ static lua_State *lua_init(void)
 		luaopen_freeswitch(L);
 		lua_gc(L, LUA_GCRESTART, 0);
 		lua_atpanic(L, panic);
-		error = luaL_loadbuffer(L, buff, strlen(buff), "line") || docall(L, 0, 0, 0);
+		error = luaL_loadbuffer(L, buff, strlen(buff), "line") || docall(L, 0, 0, 0, 1);
 	}
 	return L;
 }
@@ -141,10 +146,10 @@ static int lua_parse_and_execute(lua_State * L, char *input_code)
 	
 	if (*input_code == '~') {
 		char *buff = input_code + 1;
-		error = luaL_loadbuffer(L, buff, strlen(buff), "line") || docall(L, 0, 0, 0);	//lua_pcall(L, 0, 0, 0);
+		error = luaL_loadbuffer(L, buff, strlen(buff), "line") || docall(L, 0, 0, 0, 1);	//lua_pcall(L, 0, 0, 0);
 	} else if (!strncasecmp(input_code, "#!/lua", 6)) {
 		char *buff = input_code + 6;
-		error = luaL_loadbuffer(L, buff, strlen(buff), "line") || docall(L, 0, 0, 0);	//lua_pcall(L, 0, 0, 0);
+		error = luaL_loadbuffer(L, buff, strlen(buff), "line") || docall(L, 0, 0, 0, 1);	//lua_pcall(L, 0, 0, 0);
 	} else {
 		char *args = strchr(input_code, ' ');
 		if (args) {
@@ -168,14 +173,14 @@ static int lua_parse_and_execute(lua_State * L, char *input_code)
 			}
 
 			if (code) {
-				error = luaL_loadbuffer(L, code, strlen(code), "line") || docall(L, 0, 0, 0);
+				error = luaL_loadbuffer(L, code, strlen(code), "line") || docall(L, 0, 0, 0, 1);
 				switch_safe_free(code);
 			}
 		} else {
 			// Force empty argv table
 			char *code = NULL;
 			code = switch_mprintf("argv = {[0]='%s'};", input_code);
-			error = luaL_loadbuffer(L, code, strlen(code), "line") || docall(L, 0, 0, 0);
+			error = luaL_loadbuffer(L, code, strlen(code), "line") || docall(L, 0, 0, 0, 1);
 			switch_safe_free(code);
 		}
 
@@ -187,7 +192,7 @@ static int lua_parse_and_execute(lua_State * L, char *input_code)
 				switch_assert(fdup);
 				file = fdup;
 			}
-			error = luaL_loadfile(L, file) || docall(L, 0, 0, 0);
+			error = luaL_loadfile(L, file) || docall(L, 0, 0, 0, 1);
 			switch_safe_free(fdup);
 		}
 	}
@@ -287,10 +292,12 @@ static switch_xml_t lua_fetch(const char *section,
 }
 
 
+static void lua_event_handler(switch_event_t *event);
+
 static switch_status_t do_config(void)
 {
 	const char *cf = "lua.conf";
-	switch_xml_t cfg, xml, settings, param;
+	switch_xml_t cfg, xml, settings, param, hook;
 	switch_stream_handle_t path_stream = {0};
 	switch_stream_handle_t cpath_stream = {0};
 	
@@ -325,6 +332,35 @@ static switch_status_t do_config(void)
 					path_stream.write_function(&path_stream, ";");
 				}
 				path_stream.write_function(&path_stream, "%s", val);
+			}
+		}
+
+		for (hook = switch_xml_child(settings, "hook"); hook; hook = hook->next) {
+			char *event = (char *) switch_xml_attr_soft(hook, "event");
+			char *subclass = (char *) switch_xml_attr_soft(hook, "subclass");
+			//char *script = strdup( (char *) switch_xml_attr_soft(hook, "script"));
+			char *script = (char *) switch_xml_attr_soft(hook, "script");
+			switch_event_types_t evtype;
+
+			if (!zstr(script)) {
+				script = switch_core_strdup(globals.pool, script);
+			}
+
+			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "hook params: '%s' | '%s' | '%s'\n", event, subclass, script);
+
+			if (switch_name_event(event,&evtype) == SWITCH_STATUS_SUCCESS) {
+				if (!zstr(script)) {
+					if (switch_event_bind(modname, evtype, !zstr(subclass) ? subclass : SWITCH_EVENT_SUBCLASS_ANY,
+							lua_event_handler, script) == SWITCH_STATUS_SUCCESS) {
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "event handler for '%s' set to '%s'\n", switch_event_name(evtype), script);
+					} else {
+						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "cannot set event handler: unsuccessful bind\n");
+					}
+				} else {
+					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "cannot set event handler: no script name for event type '%s'\n", event);
+				}
+			} else {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "cannot set event handler: unknown event type '%s'\n", event);
 			}
 		}
 	}
@@ -403,6 +439,23 @@ int lua_thread(const char *text)
 	switch_thread_create(&thread, thd_attr, lua_thread_run, lth, lth->pool);
 
 	return 0;
+}
+
+static void lua_event_handler(switch_event_t *event)
+{
+	lua_State *L = lua_init();
+	char *script = NULL;
+
+	if (event->bind_user_data) {
+		script = strdup((char *)event->bind_user_data);
+	}
+
+	mod_lua_conjure_event(L, event, "event", 1);
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "lua event hook: execute '%s'\n", (char *)script);
+	lua_parse_and_execute(L, (char *)script);
+	lua_uninit(L);
+
+	switch_safe_free(script);
 }
 
 SWITCH_STANDARD_APP(lua_function)
@@ -645,6 +698,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_lua_load)
 
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_lua_shutdown)
 {
+	switch_event_unbind_callback(lua_event_handler);
+
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -658,5 +713,5 @@ SWITCH_END_EXTERN_C
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

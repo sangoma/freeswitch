@@ -55,6 +55,7 @@ switch_status_t mod_xml_radius_new_handle(rc_handle **new_handle, switch_xml_t x
 	}
 
 	if ( rc_config_init(*new_handle) == NULL ) {
+		*new_handle = NULL;
 		goto err;
 	}
 	
@@ -77,7 +78,9 @@ switch_status_t mod_xml_radius_new_handle(rc_handle **new_handle, switch_xml_t x
 		}
 		
 		if (strncmp(var, "dictionary", 10) == 0) {
-			rc_read_dictionary(*new_handle, val);
+			if ( rc_read_dictionary(*new_handle, val) != 0) {
+				goto err;
+			}
 		} else if (rc_add_config(*new_handle, var, val, "mod_xml_radius", 0) != 0) {
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error adding param '%s' with value '%s' \n", var, val);			
 			goto err;
@@ -546,61 +549,6 @@ SWITCH_STANDARD_API(mod_xml_radius_debug_api)
 	return SWITCH_STATUS_SUCCESS;
 }
 
-/* static switch_status_t name (_In_opt_z_ const char *cmd, _In_opt_ switch_core_session_t *session, _In_ switch_stream_handle_t *stream) */
-SWITCH_STANDARD_API(mod_xml_radius_connect_test)
-{
-	int result = 0;
-	VALUE_PAIR *send = NULL, *recv = NULL;
-	char msg[512 * 10 + 1] = {0};
-	uint32_t service = PW_AUTHENTICATE_ONLY;
-	rc_handle *new_handle = NULL;
-	switch_xml_t fields;
-
-	if ( GLOBAL_DEBUG ) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mod_xml_radius: starting connection test\n");
-	}
-	
-	mod_xml_radius_new_handle(&new_handle, globals.auth_invite_configs);
-
-	if ((fields = switch_xml_child(globals.auth_invite_configs, "fields")) == NULL ) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Could not find 'fields' section in config file.\n");		
-		goto err;		
-	}
-	
-	if ( mod_xml_radius_add_params(NULL, NULL, new_handle, &send, fields) !=SWITCH_STATUS_SUCCESS ) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Failed to add params to rc_handle\n");		
-		goto err;				
-	}
-	
-	if (rc_avpair_add(new_handle, &send, PW_SERVICE_TYPE, &service, -1, 0) == NULL) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mod_xml_radius: failed to add option to handle\n");
-		return SWITCH_STATUS_SUCCESS;
-	}
-	
-	result = rc_auth(new_handle, 0, send, &recv, msg);
-	
-	if ( GLOBAL_DEBUG ) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mod_xml_radius: result(RC=%d) %s \n", result, msg);
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mod_xml_radius: finished connection test\n");
-	}
-
- err:
-	if ( recv ) {
-		rc_avpair_free(recv);
-		recv = NULL;
-	}
-	if ( send ) {
-		rc_avpair_free(send);
-		send = NULL;
-	}
-	if ( new_handle ) {
-		rc_destroy(new_handle);
-		new_handle = NULL;
-	}
-
-	return SWITCH_STATUS_SUCCESS;
-}
-
 switch_xml_t mod_xml_radius_auth_invite(switch_event_t *params) {
 	int result = 0, param_idx = 0;
 	VALUE_PAIR *send = NULL, *recv = NULL, *service_vp = NULL;
@@ -660,6 +608,10 @@ switch_xml_t mod_xml_radius_auth_invite(switch_event_t *params) {
 	
 	switch_xml_set_attr_d(usr, "id", switch_event_get_header(params, "user"));
 		
+	var = switch_xml_add_child_d(vars, "variable", param_idx++);
+	switch_xml_set_attr_d(var, "name", "radius_auth_result");
+	switch_xml_set_attr_d(var, "value", "0");
+
 	service_vp = recv;
 	while (service_vp != NULL) {
 		rc_avpair_tostr(new_handle, service_vp, name, 512, value, 512);
@@ -852,6 +804,7 @@ static switch_xml_t mod_xml_radius_directory_search(const char *section, const c
 switch_status_t mod_xml_radius_check_conditions(switch_channel_t *channel, switch_xml_t conditions) {
 	switch_xml_t condition, param;
 	char *channel_var = NULL;
+	const char *channel_val = NULL;
 	char *regex = NULL;
 	char *anti = NULL;
 	int all_matched = 1;
@@ -877,9 +830,16 @@ switch_status_t mod_xml_radius_check_conditions(switch_channel_t *channel, switc
 			
 			if ( channel_var == NULL || regex == NULL ) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Improperly constructed mod_radius condition: %s %s\n", channel_var, regex);
+				continue;
 			}
 			
-			result = ( switch_regex_match( switch_channel_get_variable(channel, channel_var), regex) != SWITCH_STATUS_SUCCESS);
+			if ( ( channel_val = switch_channel_get_variable(channel, channel_var) ) == NULL ) {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, 
+								  "Improperly constructed mod_radius condition, no such channel variable: %s %s\n", channel_var, regex);
+				continue;
+			}
+
+			result = ( switch_regex_match( channel_val, regex) != SWITCH_STATUS_SUCCESS);
 			if (( anti == NULL && result ) || ( anti != NULL && !result ) ){
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Didn't match: %s == %s \n", switch_channel_get_variable(channel, channel_var), regex);
 				all_matched = 0;
@@ -1146,7 +1106,6 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xml_radius_load)
 		status = switch_xml_bind_search_function(mod_xml_radius_directory_search, switch_xml_parse_section_string("directory"), NULL);
 	}
 		
-	SWITCH_ADD_API(mod_xml_radius_api_interface, "xml_radius_connect_test", "mod_xml_radius connection test", mod_xml_radius_connect_test, NULL);
 	SWITCH_ADD_API(mod_xml_radius_api_interface, "xml_radius_debug", "mod_xml_radius toggle debug", mod_xml_radius_debug_api, NULL);
 
 	switch_core_add_state_handler(&state_handlers);
@@ -1188,5 +1147,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xml_radius_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

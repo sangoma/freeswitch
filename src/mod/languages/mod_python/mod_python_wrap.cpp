@@ -3265,12 +3265,13 @@ SWIGINTERN PyObject *_wrap_new_IVRMenu(PyObject *SWIGUNUSEDPARM(self), PyObject 
   char *arg8 = (char *) 0 ;
   char *arg9 = (char *) 0 ;
   char *arg10 = (char *) 0 ;
-  int arg11 ;
+  char *arg11 = (char *) 0 ;
   int arg12 ;
   int arg13 ;
   int arg14 ;
   int arg15 ;
   int arg16 ;
+  int arg17 ;
   IVRMenu *result = 0 ;
   void *argp1 = 0 ;
   int res1 = 0 ;
@@ -3301,8 +3302,9 @@ SWIGINTERN PyObject *_wrap_new_IVRMenu(PyObject *SWIGUNUSEDPARM(self), PyObject 
   int res10 ;
   char *buf10 = 0 ;
   int alloc10 = 0 ;
-  int val11 ;
-  int ecode11 = 0 ;
+  int res11 ;
+  char *buf11 = 0 ;
+  int alloc11 = 0 ;
   int val12 ;
   int ecode12 = 0 ;
   int val13 ;
@@ -3313,6 +3315,8 @@ SWIGINTERN PyObject *_wrap_new_IVRMenu(PyObject *SWIGUNUSEDPARM(self), PyObject 
   int ecode15 = 0 ;
   int val16 ;
   int ecode16 = 0 ;
+  int val17 ;
+  int ecode17 = 0 ;
   PyObject * obj0 = 0 ;
   PyObject * obj1 = 0 ;
   PyObject * obj2 = 0 ;
@@ -3329,8 +3333,9 @@ SWIGINTERN PyObject *_wrap_new_IVRMenu(PyObject *SWIGUNUSEDPARM(self), PyObject 
   PyObject * obj13 = 0 ;
   PyObject * obj14 = 0 ;
   PyObject * obj15 = 0 ;
+  PyObject * obj16 = 0 ;
   
-  if (!PyArg_ParseTuple(args,(char *)"OOOOOOOOOOOOOOOO:new_IVRMenu",&obj0,&obj1,&obj2,&obj3,&obj4,&obj5,&obj6,&obj7,&obj8,&obj9,&obj10,&obj11,&obj12,&obj13,&obj14,&obj15)) SWIG_fail;
+  if (!PyArg_ParseTuple(args,(char *)"OOOOOOOOOOOOOOOOO:new_IVRMenu",&obj0,&obj1,&obj2,&obj3,&obj4,&obj5,&obj6,&obj7,&obj8,&obj9,&obj10,&obj11,&obj12,&obj13,&obj14,&obj15,&obj16)) SWIG_fail;
   res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_IVRMenu, 0 |  0 );
   if (!SWIG_IsOK(res1)) {
     SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "new_IVRMenu" "', argument " "1"" of type '" "IVRMenu *""'"); 
@@ -3381,11 +3386,11 @@ SWIGINTERN PyObject *_wrap_new_IVRMenu(PyObject *SWIGUNUSEDPARM(self), PyObject 
     SWIG_exception_fail(SWIG_ArgError(res10), "in method '" "new_IVRMenu" "', argument " "10"" of type '" "char const *""'");
   }
   arg10 = reinterpret_cast< char * >(buf10);
-  ecode11 = SWIG_AsVal_int(obj10, &val11);
-  if (!SWIG_IsOK(ecode11)) {
-    SWIG_exception_fail(SWIG_ArgError(ecode11), "in method '" "new_IVRMenu" "', argument " "11"" of type '" "int""'");
-  } 
-  arg11 = static_cast< int >(val11);
+  res11 = SWIG_AsCharPtrAndSize(obj10, &buf11, NULL, &alloc11);
+  if (!SWIG_IsOK(res11)) {
+    SWIG_exception_fail(SWIG_ArgError(res11), "in method '" "new_IVRMenu" "', argument " "11"" of type '" "char const *""'");
+  }
+  arg11 = reinterpret_cast< char * >(buf11);
   ecode12 = SWIG_AsVal_int(obj11, &val12);
   if (!SWIG_IsOK(ecode12)) {
     SWIG_exception_fail(SWIG_ArgError(ecode12), "in method '" "new_IVRMenu" "', argument " "12"" of type '" "int""'");
@@ -3411,7 +3416,12 @@ SWIGINTERN PyObject *_wrap_new_IVRMenu(PyObject *SWIGUNUSEDPARM(self), PyObject 
     SWIG_exception_fail(SWIG_ArgError(ecode16), "in method '" "new_IVRMenu" "', argument " "16"" of type '" "int""'");
   } 
   arg16 = static_cast< int >(val16);
-  result = (IVRMenu *)new IVRMenu(arg1,(char const *)arg2,(char const *)arg3,(char const *)arg4,(char const *)arg5,(char const *)arg6,(char const *)arg7,(char const *)arg8,(char const *)arg9,(char const *)arg10,arg11,arg12,arg13,arg14,arg15,arg16);
+  ecode17 = SWIG_AsVal_int(obj16, &val17);
+  if (!SWIG_IsOK(ecode17)) {
+    SWIG_exception_fail(SWIG_ArgError(ecode17), "in method '" "new_IVRMenu" "', argument " "17"" of type '" "int""'");
+  } 
+  arg17 = static_cast< int >(val17);
+  result = (IVRMenu *)new IVRMenu(arg1,(char const *)arg2,(char const *)arg3,(char const *)arg4,(char const *)arg5,(char const *)arg6,(char const *)arg7,(char const *)arg8,(char const *)arg9,(char const *)arg10,(char const *)arg11,arg12,arg13,arg14,arg15,arg16,arg17);
   resultobj = SWIG_NewPointerObj(SWIG_as_voidptr(result), SWIGTYPE_p_IVRMenu, SWIG_POINTER_NEW |  0 );
   if (alloc2 == SWIG_NEWOBJ) delete[] buf2;
   if (alloc3 == SWIG_NEWOBJ) delete[] buf3;
@@ -3422,6 +3432,7 @@ SWIGINTERN PyObject *_wrap_new_IVRMenu(PyObject *SWIGUNUSEDPARM(self), PyObject 
   if (alloc8 == SWIG_NEWOBJ) delete[] buf8;
   if (alloc9 == SWIG_NEWOBJ) delete[] buf9;
   if (alloc10 == SWIG_NEWOBJ) delete[] buf10;
+  if (alloc11 == SWIG_NEWOBJ) delete[] buf11;
   return resultobj;
 fail:
   if (alloc2 == SWIG_NEWOBJ) delete[] buf2;
@@ -3433,6 +3444,7 @@ fail:
   if (alloc8 == SWIG_NEWOBJ) delete[] buf8;
   if (alloc9 == SWIG_NEWOBJ) delete[] buf9;
   if (alloc10 == SWIG_NEWOBJ) delete[] buf10;
+  if (alloc11 == SWIG_NEWOBJ) delete[] buf11;
   return NULL;
 }
 
@@ -5573,8 +5585,31 @@ SWIGINTERN PyObject *_wrap_EventConsumer_pop(PyObject *SWIGUNUSEDPARM(self), PyO
     } 
     arg3 = static_cast< int >(val3);
   }
+  Py_BEGIN_ALLOW_THREADS;
   result = (Event *)(arg1)->pop(arg2,arg3);
+  Py_END_ALLOW_THREADS;
   resultobj = SWIG_NewPointerObj(SWIG_as_voidptr(result), SWIGTYPE_p_Event, SWIG_POINTER_OWN |  0 );
+  return resultobj;
+fail:
+  return NULL;
+}
+
+
+SWIGINTERN PyObject *_wrap_EventConsumer_cleanup(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
+  PyObject *resultobj = 0;
+  EventConsumer *arg1 = (EventConsumer *) 0 ;
+  void *argp1 = 0 ;
+  int res1 = 0 ;
+  PyObject * obj0 = 0 ;
+  
+  if (!PyArg_ParseTuple(args,(char *)"O:EventConsumer_cleanup",&obj0)) SWIG_fail;
+  res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_EventConsumer, 0 |  0 );
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "EventConsumer_cleanup" "', argument " "1"" of type '" "EventConsumer *""'"); 
+  }
+  arg1 = reinterpret_cast< EventConsumer * >(argp1);
+  (arg1)->cleanup();
+  resultobj = SWIG_Py_Void();
   return resultobj;
 fail:
   return NULL;
@@ -6982,6 +7017,51 @@ fail:
 }
 
 
+SWIGINTERN PyObject *_wrap_CoreSession_set_tts_params(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
+  PyObject *resultobj = 0;
+  CoreSession *arg1 = (CoreSession *) 0 ;
+  char *arg2 = (char *) 0 ;
+  char *arg3 = (char *) 0 ;
+  void *argp1 = 0 ;
+  int res1 = 0 ;
+  int res2 ;
+  char *buf2 = 0 ;
+  int alloc2 = 0 ;
+  int res3 ;
+  char *buf3 = 0 ;
+  int alloc3 = 0 ;
+  PyObject * obj0 = 0 ;
+  PyObject * obj1 = 0 ;
+  PyObject * obj2 = 0 ;
+  
+  if (!PyArg_ParseTuple(args,(char *)"OOO:CoreSession_set_tts_params",&obj0,&obj1,&obj2)) SWIG_fail;
+  res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_CoreSession, 0 |  0 );
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "CoreSession_set_tts_params" "', argument " "1"" of type '" "CoreSession *""'"); 
+  }
+  arg1 = reinterpret_cast< CoreSession * >(argp1);
+  res2 = SWIG_AsCharPtrAndSize(obj1, &buf2, NULL, &alloc2);
+  if (!SWIG_IsOK(res2)) {
+    SWIG_exception_fail(SWIG_ArgError(res2), "in method '" "CoreSession_set_tts_params" "', argument " "2"" of type '" "char *""'");
+  }
+  arg2 = reinterpret_cast< char * >(buf2);
+  res3 = SWIG_AsCharPtrAndSize(obj2, &buf3, NULL, &alloc3);
+  if (!SWIG_IsOK(res3)) {
+    SWIG_exception_fail(SWIG_ArgError(res3), "in method '" "CoreSession_set_tts_params" "', argument " "3"" of type '" "char *""'");
+  }
+  arg3 = reinterpret_cast< char * >(buf3);
+  (arg1)->set_tts_params(arg2,arg3);
+  resultobj = SWIG_Py_Void();
+  if (alloc2 == SWIG_NEWOBJ) delete[] buf2;
+  if (alloc3 == SWIG_NEWOBJ) delete[] buf3;
+  return resultobj;
+fail:
+  if (alloc2 == SWIG_NEWOBJ) delete[] buf2;
+  if (alloc3 == SWIG_NEWOBJ) delete[] buf3;
+  return NULL;
+}
+
+
 SWIGINTERN PyObject *_wrap_CoreSession_collectDigits__SWIG_0(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
   PyObject *resultobj = 0;
   CoreSession *arg1 = (CoreSession *) 0 ;
@@ -8184,6 +8264,51 @@ fail:
 }
 
 
+SWIGINTERN PyObject *_wrap_CoreSession_consoleLog(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
+  PyObject *resultobj = 0;
+  CoreSession *arg1 = (CoreSession *) 0 ;
+  char *arg2 = (char *) 0 ;
+  char *arg3 = (char *) 0 ;
+  void *argp1 = 0 ;
+  int res1 = 0 ;
+  int res2 ;
+  char *buf2 = 0 ;
+  int alloc2 = 0 ;
+  int res3 ;
+  char *buf3 = 0 ;
+  int alloc3 = 0 ;
+  PyObject * obj0 = 0 ;
+  PyObject * obj1 = 0 ;
+  PyObject * obj2 = 0 ;
+  
+  if (!PyArg_ParseTuple(args,(char *)"OOO:CoreSession_consoleLog",&obj0,&obj1,&obj2)) SWIG_fail;
+  res1 = SWIG_ConvertPtr(obj0, &argp1,SWIGTYPE_p_CoreSession, 0 |  0 );
+  if (!SWIG_IsOK(res1)) {
+    SWIG_exception_fail(SWIG_ArgError(res1), "in method '" "CoreSession_consoleLog" "', argument " "1"" of type '" "CoreSession *""'"); 
+  }
+  arg1 = reinterpret_cast< CoreSession * >(argp1);
+  res2 = SWIG_AsCharPtrAndSize(obj1, &buf2, NULL, &alloc2);
+  if (!SWIG_IsOK(res2)) {
+    SWIG_exception_fail(SWIG_ArgError(res2), "in method '" "CoreSession_consoleLog" "', argument " "2"" of type '" "char *""'");
+  }
+  arg2 = reinterpret_cast< char * >(buf2);
+  res3 = SWIG_AsCharPtrAndSize(obj2, &buf3, NULL, &alloc3);
+  if (!SWIG_IsOK(res3)) {
+    SWIG_exception_fail(SWIG_ArgError(res3), "in method '" "CoreSession_consoleLog" "', argument " "3"" of type '" "char *""'");
+  }
+  arg3 = reinterpret_cast< char * >(buf3);
+  (arg1)->consoleLog(arg2,arg3);
+  resultobj = SWIG_Py_Void();
+  if (alloc2 == SWIG_NEWOBJ) delete[] buf2;
+  if (alloc3 == SWIG_NEWOBJ) delete[] buf3;
+  return resultobj;
+fail:
+  if (alloc2 == SWIG_NEWOBJ) delete[] buf2;
+  if (alloc3 == SWIG_NEWOBJ) delete[] buf3;
+  return NULL;
+}
+
+
 SWIGINTERN PyObject *CoreSession_swigregister(PyObject *SWIGUNUSEDPARM(self), PyObject *args) {
   PyObject *obj;
   if (!PyArg_ParseTuple(args,(char*)"O:swigregister", &obj)) return NULL;
@@ -8264,7 +8389,7 @@ SWIGINTERN PyObject *_wrap_msleep(PyObject *SWIGUNUSEDPARM(self), PyObject *args
     SWIG_exception_fail(SWIG_ArgError(ecode1), "in method '" "msleep" "', argument " "1"" of type '" "unsigned int""'");
   } 
   arg1 = static_cast< unsigned int >(val1);
-  msleep(arg1);
+  switch_msleep(arg1);
   resultobj = SWIG_Py_Void();
   return resultobj;
 fail:
@@ -9256,6 +9381,7 @@ static PyMethodDef SwigMethods[] = {
 	 { (char *)"delete_EventConsumer", _wrap_delete_EventConsumer, METH_VARARGS, NULL},
 	 { (char *)"EventConsumer_bind", _wrap_EventConsumer_bind, METH_VARARGS, NULL},
 	 { (char *)"EventConsumer_pop", _wrap_EventConsumer_pop, METH_VARARGS, NULL},
+	 { (char *)"EventConsumer_cleanup", _wrap_EventConsumer_cleanup, METH_VARARGS, NULL},
 	 { (char *)"EventConsumer_swigregister", EventConsumer_swigregister, METH_VARARGS, NULL},
 	 { (char *)"delete_CoreSession", _wrap_delete_CoreSession, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_session_set", _wrap_CoreSession_session_set, METH_VARARGS, NULL},
@@ -9298,6 +9424,7 @@ static PyMethodDef SwigMethods[] = {
 	 { (char *)"CoreSession_setDTMFCallback", _wrap_CoreSession_setDTMFCallback, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_speak", _wrap_CoreSession_speak, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_set_tts_parms", _wrap_CoreSession_set_tts_parms, METH_VARARGS, NULL},
+	 { (char *)"CoreSession_set_tts_params", _wrap_CoreSession_set_tts_params, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_collectDigits", _wrap_CoreSession_collectDigits, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_getDigits", _wrap_CoreSession_getDigits, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_transfer", _wrap_CoreSession_transfer, METH_VARARGS, NULL},
@@ -9324,6 +9451,7 @@ static PyMethodDef SwigMethods[] = {
 	 { (char *)"CoreSession_get_cb_args", _wrap_CoreSession_get_cb_args, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_check_hangup_hook", _wrap_CoreSession_check_hangup_hook, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_run_dtmf_callback", _wrap_CoreSession_run_dtmf_callback, METH_VARARGS, NULL},
+	 { (char *)"CoreSession_consoleLog", _wrap_CoreSession_consoleLog, METH_VARARGS, NULL},
 	 { (char *)"CoreSession_swigregister", CoreSession_swigregister, METH_VARARGS, NULL},
 	 { (char *)"console_log", _wrap_console_log, METH_VARARGS, NULL},
 	 { (char *)"console_clean_log", _wrap_console_clean_log, METH_VARARGS, NULL},

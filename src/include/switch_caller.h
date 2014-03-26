@@ -57,6 +57,9 @@
 
 SWITCH_BEGIN_EXTERN_C
 
+#define profile_dup(a,b,p) if (!zstr(a)) { b = switch_core_strdup(p, a); } else { b = SWITCH_BLANK_STRING; }
+#define profile_dup_clean(a,b,p) if (!zstr(a)) { b = switch_var_clean_string(switch_clean_string(switch_core_strdup(p, a)));} else { b = SWITCH_BLANK_STRING; }
+
 typedef struct profile_node_s {
 	char *var;
 	char *val;
@@ -76,6 +79,10 @@ typedef struct profile_node_s {
 	const char *caller_id_name;
 	/*! Caller ID Number */
 	const char *caller_id_number;
+	/*! Original Caller ID Name */
+	const char *orig_caller_id_name;
+	/*! Original Caller ID Number */
+	const char *orig_caller_id_number;
 	/*! Callee ID Name */
 	const char *callee_id_name;
 	/*! Callee ID Number */
@@ -120,6 +127,7 @@ typedef struct profile_node_s {
 	switch_memory_pool_t *pool;
 	struct switch_caller_profile *next;
 	switch_call_direction_t direction;
+	switch_call_direction_t logical_direction;
 	profile_node_t *soft;
 	char *uuid_str;
 	char *clone_of;
@@ -261,5 +269,5 @@ SWITCH_END_EXTERN_C
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

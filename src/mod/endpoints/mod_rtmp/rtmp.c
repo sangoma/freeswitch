@@ -24,6 +24,7 @@
  * 
  * Mathieu Rene <mrene@avgs.ca>
  * Joao Mesquita <jmesquita@freeswitch.org>
+ * William King <william.king@quentustech.com>
  *
  * rtmp.c -- RTMP Protocol Handler
  *
@@ -73,7 +74,7 @@ void rtmp_handle_control(rtmp_session_t *rsession, int amfnumber)
 		p += sprintf(p, "%02x ", state->buf[i] & 0xFF);
 	}
 	
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Control (%d): %s\n", type, buf);
+	switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, "Control (%d): %s\n", type, buf);
 	
 	switch(type) {
 		case RTMP_CTRL_STREAM_BEGIN:
@@ -85,7 +86,7 @@ void rtmp_handle_control(rtmp_session_t *rsession, int amfnumber)
 					state->buf[2], state->buf[3], state->buf[4], state->buf[5]
 				};
 				rtmp_send_message(rsession, amfnumber, 0, RTMP_TYPE_USERCTRL, 0, buf, sizeof(buf), 0);
-				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Ping request\n");
+				switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, "Ping request\n");
 			}
 			break;
 		case RTMP_CTRL_PING_RESPONSE:
@@ -93,11 +94,11 @@ void rtmp_handle_control(rtmp_session_t *rsession, int amfnumber)
 				uint32_t now = ((switch_micro_time_now()/1000) & 0xFFFFFFFF);
 				uint32_t sent = state->buf[2] << 24 | state->buf[3] << 16 | state->buf[4] << 8 | state->buf[5];
 				
-				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO, "Ping reply: %d ms\n", (int)(now - sent));
+				switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_INFO, "Ping reply: %d ms\n", (int)(now - sent));
 			}
 			break;
 		default:
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "[amfnumber=%d] Unhandled control packet (type=0x%x)\n",
+			switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_WARNING, "[amfnumber=%d] Unhandled control packet (type=0x%x)\n",
 				amfnumber, type);
 	}
 }
@@ -161,13 +162,13 @@ void rtmp_handle_invoke(rtmp_session_t *rsession, int amfnumber)
 	while (argc < switch_arraylen(argv) && (argv[argc++] = amf0_data_read(my_buffer_read, &helper)));
 
 	if (!(command = amf0_get_string(argv[i++]))) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Bogus INVOKE request\n");
+		switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_WARNING, "Bogus INVOKE request\n");
 		return;
 	}
 	
 	transaction_id = amf0_get_number(argv[i++]);
 	
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[amfnumber=%d] Got INVOKE for %s\n", amfnumber, 
+	switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, "[amfnumber=%d] Got INVOKE for %s\n", amfnumber, 
 		command);
 
 	if ((function = (rtmp_invoke_function_t)(intptr_t)switch_core_hash_find(rtmp_globals.invoke_hash, command))) {
@@ -395,8 +396,9 @@ void rtmp_session_send_onattach(rtmp_session_t *rsession)
 void rtmp_send_display_update(switch_core_session_t *session)
 {
 	rtmp_private_t *tech_pvt = switch_core_session_get_private(session);
+	rtmp_session_t *rsession = tech_pvt->rtmp_session;
 
-	rtmp_send_invoke_free(tech_pvt->rtmp_session, 3, 0, 0,
+	rtmp_send_invoke_free(rsession, 3, 0, 0,
 		amf0_str("displayUpdate"),
 		amf0_number_new(0),
 		amf0_null_new(),
@@ -408,6 +410,7 @@ void rtmp_send_display_update(switch_core_session_t *session)
 void rtmp_send_incoming_call(switch_core_session_t *session, switch_event_t *var_event)
 {
 	rtmp_private_t *tech_pvt = switch_core_session_get_private(session);
+	rtmp_session_t *rsession = tech_pvt->rtmp_session;
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	switch_caller_profile_t *caller_profile = switch_channel_get_caller_profile(channel);
 	switch_event_t *event = NULL;
@@ -424,7 +427,7 @@ void rtmp_send_incoming_call(switch_core_session_t *session, switch_event_t *var
 		switch_event_destroy(&event);
 	}
 	
-	rtmp_send_invoke_free(tech_pvt->rtmp_session, 3, 0, 0,
+	rtmp_send_invoke_free(rsession, 3, 0, 0,
 		amf0_str("incomingCall"),
 		amf0_number_new(0),
 		amf0_null_new(),
@@ -438,9 +441,10 @@ void rtmp_send_incoming_call(switch_core_session_t *session, switch_event_t *var
 void rtmp_send_onhangup(switch_core_session_t *session)
 {
 	rtmp_private_t *tech_pvt = switch_core_session_get_private(session);
+	rtmp_session_t *rsession = tech_pvt->rtmp_session;
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	
-	rtmp_send_invoke_free(tech_pvt->rtmp_session, 3, 0, 0,
+	rtmp_send_invoke_free(rsession, 3, 0, 0,
 		amf0_str("onHangup"),
 		amf0_number_new(0),
 		amf0_null_new(),
@@ -475,8 +479,9 @@ void rtmp_notify_call_state(switch_core_session_t *session)
 	switch_channel_t *channel = switch_core_session_get_channel(session);
 	const char *state = switch_channel_callstate2str(switch_channel_get_callstate(channel));
 	rtmp_private_t *tech_pvt = switch_core_session_get_private(session);
-	
-	rtmp_send_invoke_free(tech_pvt->rtmp_session, 3, 0, 0,
+	rtmp_session_t *rsession = tech_pvt->rtmp_session;
+
+	rtmp_send_invoke_free(rsession, 3, 0, 0,
 		amf0_str("callState"),
 		amf0_number_new(0),
 		amf0_null_new(),
@@ -557,13 +562,15 @@ switch_status_t rtmp_send_message(rtmp_session_t *rsession, uint8_t amfnumber, u
 	if ((rsession->send_ack + rsession->send_ack_window) < rsession->send && 
 			(type == RTMP_TYPE_VIDEO || type == RTMP_TYPE_AUDIO)) { 
 		/* We're sending too fast, drop the frame */
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "DROP %s FRAME [amfnumber=%d type=0x%x stream_id=0x%x] len=%"SWITCH_SIZE_T_FMT" \n",
-		 	type == RTMP_TYPE_AUDIO ? "AUDIO" : "VIDEO", amfnumber, type, stream_id, len);
+		switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, 
+						  "DROP %s FRAME [amfnumber=%d type=0x%x stream_id=0x%x] len=%"SWITCH_SIZE_T_FMT" \n",
+						  type == RTMP_TYPE_AUDIO ? "AUDIO" : "VIDEO", amfnumber, type, stream_id, len);
 		return SWITCH_STATUS_SUCCESS;
 	}
 
 	if (type != RTMP_TYPE_AUDIO && type != RTMP_TYPE_VIDEO && type != RTMP_TYPE_ACK) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[amfnumber=%d type=0x%x stream_id=0x%x] len=%"SWITCH_SIZE_T_FMT" \n", amfnumber, type, stream_id, len);	
+		switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, 
+						  "[amfnumber=%d type=0x%x stream_id=0x%x] len=%"SWITCH_SIZE_T_FMT" \n", amfnumber, type, stream_id, len);	
 	}
 	
 #ifdef RTMP_DEBUG_IO
@@ -677,7 +684,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 		s = 1537 - rsession->hspos;
 		
 		if (rsession->profile->io->read(rsession, rsession->hsbuf + rsession->hspos, &s) != SWITCH_STATUS_SUCCESS) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
+			switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
 			return SWITCH_STATUS_FALSE;
 		}
 		
@@ -699,7 +706,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 		s = 1536;
 		rsession->profile->io->write(rsession, rsession->hsbuf, &s);
 		
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Sent handshake response\n");
+		switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, "Sent handshake response\n");
 		
 		rsession->state++;
 		rsession->hspos = 0;
@@ -708,7 +715,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 		
 		/* Receive C2 */
 		if (rsession->profile->io->read(rsession, rsession->hsbuf + rsession->hspos, &s) != SWITCH_STATUS_SUCCESS) {
-			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
+			switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
 			return SWITCH_STATUS_FALSE;
 		}
 		
@@ -724,7 +731,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 		//s = 1536;
 		//rsession->profile->io->write(rsession, (char*)buf, &s);
 		
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Done with handshake\n");
+		switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, "Done with handshake\n");
 		
 		
 		return SWITCH_STATUS_SUCCESS;
@@ -735,7 +742,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 				// Read the header's first byte
 				s = 1;
 				if (rsession->profile->io->read(rsession, (unsigned char*)buf, &s) != SWITCH_STATUS_SUCCESS) {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
+					switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
 					return SWITCH_STATUS_FALSE;
 				}
 				
@@ -756,12 +763,12 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 						break;
 					default:
 						rsession->hdrsize = 0;
-						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "WTF hdrsize 0x%02x %d\n", *buf, *buf >> 6);
+						switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_CRIT, "WTF hdrsize 0x%02x %d\n", *buf, *buf >> 6);
 						return SWITCH_STATUS_FALSE;
 				}
 				rsession->amfnumber = buf[0] & 0x3F;	/* Get rid of the 2 first bits */
 				if (rsession->amfnumber > 64) {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Protocol error\n");
+					switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_ERROR, "Protocol error\n");
 					return SWITCH_STATUS_FALSE;
 				} 
 				//switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Header size: %d AMF Number: %d\n", rsession->hdrsize, rsession->amfnumber);
@@ -787,10 +794,13 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 					readbuf += (rsession->hdrsize - 1) - s;
 				}
 				
-				switch_assert(s < 12 && s > 0); /** XXX **/
+				if ( !(s < 12 && s > 0) ) { /** XXX **/
+					switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_NOTICE, "Protocol error: Invalid header size\n");
+					return SWITCH_STATUS_FALSE;
+				}
 				
 				if (rsession->profile->io->read(rsession, readbuf, &s) != SWITCH_STATUS_SUCCESS) {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
+					switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
 					return SWITCH_STATUS_FALSE;
 				}
 				
@@ -853,7 +863,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 					s = state->remainlen = state->origlen;
 					rsession->parse_remain = s;
 					if (!s) {
-						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Protocol error, forcing big read\n");
+						switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_ERROR, "Protocol error, forcing big read\n");
 						s = sizeof(state->buf);
 						rsession->profile->io->read(rsession, state->buf, &s);
 						return SWITCH_STATUS_FALSE;
@@ -862,17 +872,20 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 				
 				/* Sanity check */
 				if ((state->buf_pos + s) > AMF_MAX_SIZE) {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "WTF %"SWITCH_SIZE_T_FMT" %"SWITCH_SIZE_T_FMT"\n",
+					switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_ERROR, "WTF %"SWITCH_SIZE_T_FMT" %"SWITCH_SIZE_T_FMT"\n",
 						state->buf_pos, s);
 					
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Protocol error: exceeding max AMF packet size\n");
+					switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_ERROR, "Protocol error: exceeding max AMF packet size\n");
 					return SWITCH_STATUS_FALSE;
 				}
-				
-				switch_assert(s <= rsession->in_chunksize);
+
+				if (s > rsession->in_chunksize) {
+					switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_ERROR, "Protocol error: invalid chunksize\n");
+					return SWITCH_STATUS_FALSE;					
+				}
 				
 				if (rsession->profile->io->read(rsession, state->buf + state->buf_pos, &s) != SWITCH_STATUS_SUCCESS) {
-					switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
+					switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_NOTICE, "Disconnected from flash client\n");
 					return SWITCH_STATUS_FALSE;
 				}
 				rsession->recv += s;
@@ -889,7 +902,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 				if (state->remainlen == 0) {
 
 					if (state->type != RTMP_TYPE_AUDIO && state->type != RTMP_TYPE_VIDEO && state->type != RTMP_TYPE_ACK) {
-						switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "[chunk_stream=%d type=0x%x ts=%d stream_id=0x%x] len=%d\n", rsession->amfnumber, state->type, (int)state->ts, state->stream_id, state->origlen);
+						switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, "[chunk_stream=%d type=0x%x ts=%d stream_id=0x%x] len=%d\n", rsession->amfnumber, state->type, (int)state->ts, state->stream_id, state->origlen);
 					}
 #ifdef RTMP_DEBUG_IO
 					fprintf(rsession->io_debug_in, "[chunk_stream=%d type=0x%x ts=%d stream_id=0x%x] len=%d\n", rsession->amfnumber, state->type, (int)state->ts, state->stream_id, state->origlen);
@@ -897,7 +910,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 					switch(state->type) {
 						case RTMP_TYPE_CHUNKSIZE:
 							rsession->in_chunksize = state->buf[0] << 24 | state->buf[1] << 16 | state->buf[2] << 8 | state->buf[3];
-							switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "SET CHUNKSIZE=%d\n", (int)rsession->in_chunksize);
+							switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, "SET CHUNKSIZE=%d\n", (int)rsession->in_chunksize);
 							break;
 						case RTMP_TYPE_USERCTRL:
 							rtmp_handle_control(rsession, rsession->amfnumber);
@@ -906,10 +919,12 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 							rtmp_handle_invoke(rsession, rsession->amfnumber);
 							break;
 						case RTMP_TYPE_AUDIO: /* Audio data */
+							switch_thread_rwlock_wrlock(rsession->rwlock);
 							if (rsession->tech_pvt) {
 								uint16_t len = state->origlen;
 								
 								if (!rsession->tech_pvt->readbuf) {
+									switch_thread_rwlock_unlock(rsession->rwlock);
 									return SWITCH_STATUS_FALSE;
 								}
 
@@ -921,7 +936,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 									rsession->tech_pvt->over_size = 0;
 								}
 								if (rsession->tech_pvt->over_size > 10) {
-									switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, 
+									switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, 
 													  "%s buffer > %u for 10 consecutive packets... Flushing buffer\n", 
 													  switch_core_session_get_name(rsession->tech_pvt->session), rsession->tech_pvt->maxlen * 40);
 									switch_buffer_zero(rsession->tech_pvt->readbuf);
@@ -936,13 +951,14 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 								}
 								switch_mutex_unlock(rsession->tech_pvt->readbuf_mutex);
 							}
+							switch_thread_rwlock_unlock(rsession->rwlock);
 							break;
 						case RTMP_TYPE_VIDEO: /* Video data */
 						case RTMP_TYPE_METADATA: /* Metadata */
 							break;
 						case RTMP_TYPE_WINDOW_ACK_SIZE:
 							rsession->send_ack_window = (state->buf[0] << 24) | (state->buf[1] << 16) | (state->buf[2] << 8) | (state->buf[3]);
-							switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Set window size: %lu bytes\n", (long unsigned int)rsession->send_ack_window);
+							switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_DEBUG, "Set window size: %lu bytes\n", (long unsigned int)rsession->send_ack_window);
 							break;
 						case RTMP_TYPE_ACK:
 						{
@@ -961,7 +977,7 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
 							break;
 						}
 						default:
-							switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Cannot handle message type 0x%x\n", state->type);
+							switch_log_printf(SWITCH_CHANNEL_UUID_LOG(rsession->uuid), SWITCH_LOG_WARNING, "Cannot handle message type 0x%x\n", state->type);
 							break;
 					}
 					state->buf_pos = 0;
@@ -992,5 +1008,5 @@ switch_status_t rtmp_handle_data(rtmp_session_t *rsession)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

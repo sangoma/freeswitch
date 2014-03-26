@@ -29,6 +29,7 @@ Description: Caller ID name lookup
 Module: applications/mod_cluechoo
 Description: Clue Choo
  This demo module renders a Clue Choo train on the FreeSWITCH console.
+Build-Depends: libncurses5-dev
 
 Module: applications/mod_commands
 Description: Command module
@@ -214,6 +215,10 @@ Module: applications/mod_stress
 Description: Voice stress detection
  This module attempts to detect voice stress on an audio channel.
 
+Module: applications/mod_translate
+Description: Number translation
+ This module implements number translation.
+
 Module: applications/mod_valet_parking
 Description: Valet parking
  This module implements the valet call parking strategy.
@@ -225,6 +230,7 @@ Description: Voicemail detection
 Module: applications/mod_voicemail
 Description: Voicemail
  This module provides a voicemail system.
+Depends: ssmtp | mail-transport-agent
 
 Module: applications/mod_voicemail_ivr
 Description: Voicemail IVR
@@ -261,6 +267,10 @@ Description: mod_amr
 Module: codecs/mod_amrwb
 Description: mod_amrwb
  Adds mod_amrwb.
+
+Module: codecs/mod_b64
+Description: mod_b64
+ Adds mod_b64.
 
 Module: codecs/mod_bv
 Description: mod_bv
@@ -386,10 +396,6 @@ Description: mod_h323
  Adds mod_h323.
 Build-Depends: libopenh323-dev | libh323plus-dev, libpt-dev
 
-Module: endpoints/mod_html5
-Description: HTML5 endpoint module
- This module adds support for HTML5 technologies such as WebRTC.
-
 Module: endpoints/mod_khomp
 Description: mod_khomp
  Adds mod_khomp.
@@ -405,6 +411,7 @@ Description: mod_opal
 Module: endpoints/mod_portaudio
 Description: mod_portaudio
  Adds mod_portaudio.
+Build-Depends: libasound2-dev
 
 Module: endpoints/mod_reference
 Description: mod_reference
@@ -480,6 +487,11 @@ Module: event_handlers/mod_radius_cdr
 Description: mod_radius_cdr
  Adds mod_radius_cdr.
 
+Module: event_handlers/mod_rayo
+Description: mod_rayo
+ Adds mod_rayo.
+Depends: freeswitch-mod-ssml (= ${binary:Version})
+
 Module: event_handlers/mod_snmp
 Description: mod_snmp
  Adds mod_snmp.
@@ -513,6 +525,10 @@ Description: mod_sndfile
  Adds mod_sndfile.
 Build-Depends: libflac-dev, libogg-dev, libvorbis-dev
 
+Module: formats/mod_ssml
+Description: mod_ssml
+ Adds mod_ssml.
+
 Module: formats/mod_tone_stream
 Description: mod_tone_stream
  Adds mod_tone_stream.
@@ -521,6 +537,8 @@ Module: formats/mod_vlc
 Description: VLC streaming
  This module provides VLC streaming.
 Build-Depends: libvlc-dev (>= 2.0.0)
+Depends: vlc-nox
+Suggests: vlc-dbg
 Distro-Conflicts: squeeze
 
 ## mod/languages
@@ -618,6 +636,10 @@ Description: mod_say_ja
 Module: say/mod_say_nl
 Description: mod_say_nl
  Adds mod_say_nl.
+
+Module: say/mod_say_pl
+Description: mod_say_pl
+ Adds mod_say_pl.
 
 Module: say/mod_say_pt
 Description: mod_say_pt

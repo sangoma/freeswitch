@@ -39,9 +39,15 @@
 #if defined(HAVE_MATH_H)
 #include <math.h>
 #endif
+#if defined(HAVE_STDBOOL_H)
+#include <stdbool.h>
+#else
+#include "spandsp/stdbool.h"
+#endif
 #include "floating_fudge.h"
 
 #include "spandsp/telephony.h"
+#include "spandsp/alloc.h"
 #include "spandsp/fast_convert.h"
 #include "spandsp/logging.h"
 #include "spandsp/complex.h"
@@ -60,13 +66,12 @@
 
 #if defined(SPANDSP_USE_FIXED_POINT)
 #define FP_SCALE                        FP_Q_6_10
-#include "v27ter_tx_4800_fixed_rrc.h"
-#include "v27ter_tx_2400_fixed_rrc.h"
 #else
 #define FP_SCALE(x)                     (x)
-#include "v27ter_tx_4800_floating_rrc.h"
-#include "v27ter_tx_2400_floating_rrc.h"
 #endif
+
+#include "v27ter_tx_4800_rrc.h"
+#include "v27ter_tx_2400_rrc.h"
 
 /*! The nominal frequency of the carrier, in Hertz */
 #define CARRIER_NOMINAL_FREQ            1800.0f
@@ -121,7 +126,7 @@ static __inline__ int scramble(v27ter_tx_state_t *s, int in_bit)
 static __inline__ int get_scrambled_bit(v27ter_tx_state_t *s)
 {
     int bit;
-    
+
     if ((bit = s->current_get_bit(s->get_bit_user_data)) == SIG_STATUS_END_OF_DATA)
     {
         /* End of real data. Switch to the fake get_bit routine, until we
@@ -129,7 +134,7 @@ static __inline__ int get_scrambled_bit(v27ter_tx_state_t *s)
         if (s->status_handler)
             s->status_handler(s->status_user_data, SIG_STATUS_END_OF_DATA);
         s->current_get_bit = fake_get_bit;
-        s->in_training = TRUE;
+        s->in_training = true;
         bit = 1;
     }
     return scramble(s, bit);
@@ -171,7 +176,7 @@ static complexf_t getbaud(v27ter_tx_state_t *s)
 
     if (s->in_training)
     {
-       	/* Send the training sequence */
+        /* Send the training sequence */
         if (++s->training_step <= V27TER_TRAINING_SEG_5)
         {
             if (s->training_step <= V27TER_TRAINING_SEG_4)
@@ -209,7 +214,7 @@ static complexf_t getbaud(v27ter_tx_state_t *s)
             /* Switch from the fake get_bit routine, to the user supplied real
                one, and we are up and running. */
             s->current_get_bit = s->get_bit;
-            s->in_training = FALSE;
+            s->in_training = false;
         }
         if (s->training_step == V27TER_TRAINING_SHUTDOWN_END)
         {
@@ -368,7 +373,7 @@ SPAN_DECLARE(logging_state_t *) v27ter_tx_get_logging_state(v27ter_tx_state_t *s
 }
 /*- End of function --------------------------------------------------------*/
 
-SPAN_DECLARE(int) v27ter_tx_restart(v27ter_tx_state_t *s, int bit_rate, int tep)
+SPAN_DECLARE(int) v27ter_tx_restart(v27ter_tx_state_t *s, int bit_rate, bool tep)
 {
     if (bit_rate != 4800  &&  bit_rate != 2400)
         return -1;
@@ -383,7 +388,7 @@ SPAN_DECLARE(int) v27ter_tx_restart(v27ter_tx_state_t *s, int bit_rate, int tep)
     s->rrc_filter_step = 0;
     s->scramble_reg = 0x3C;
     s->scrambler_pattern_count = 0;
-    s->in_training = TRUE;
+    s->in_training = true;
     s->training_step = (tep)  ?  V27TER_TRAINING_SEG_1  :  V27TER_TRAINING_SEG_2;
     s->carrier_phase = 0;
     s->baud_phase = 0;
@@ -393,7 +398,7 @@ SPAN_DECLARE(int) v27ter_tx_restart(v27ter_tx_state_t *s, int bit_rate, int tep)
 }
 /*- End of function --------------------------------------------------------*/
 
-SPAN_DECLARE(v27ter_tx_state_t *) v27ter_tx_init(v27ter_tx_state_t *s, int bit_rate, int tep, get_bit_func_t get_bit, void *user_data)
+SPAN_DECLARE(v27ter_tx_state_t *) v27ter_tx_init(v27ter_tx_state_t *s, int bit_rate, bool tep, get_bit_func_t get_bit, void *user_data)
 {
     switch (bit_rate)
     {
@@ -405,7 +410,7 @@ SPAN_DECLARE(v27ter_tx_state_t *) v27ter_tx_init(v27ter_tx_state_t *s, int bit_r
     }
     if (s == NULL)
     {
-        if ((s = (v27ter_tx_state_t *) malloc(sizeof(*s))) == NULL)
+        if ((s = (v27ter_tx_state_t *) span_alloc(sizeof(*s))) == NULL)
             return NULL;
     }
     memset(s, 0, sizeof(*s));
@@ -428,7 +433,7 @@ SPAN_DECLARE(int) v27ter_tx_release(v27ter_tx_state_t *s)
 
 SPAN_DECLARE(int) v27ter_tx_free(v27ter_tx_state_t *s)
 {
-    free(s);
+    span_free(s);
     return 0;
 }
 /*- End of function --------------------------------------------------------*/

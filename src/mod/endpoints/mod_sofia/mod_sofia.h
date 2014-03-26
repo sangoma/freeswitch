@@ -29,6 +29,7 @@
  * Bret McDanel <trixter AT 0xdecafbad.com>
  * Marcel Barbulescu <marcelbarbulescu@gmail.com>
  * Raymond Chandler <intralanman@gmail.com>
+ * Emmanuel Schmidbauer <e.schmidbauer@gmail.com> 
  *
  *
  * mod_sofia.h -- SOFIA SIP Endpoint
@@ -168,7 +169,6 @@ typedef struct sofia_dispatch_event_s {
 
 struct sofia_private {
 	char uuid[SWITCH_UUID_FORMATTED_LENGTH + 1];
-	sofia_gateway_t *gateway;
 	char gateway_name[256];
 	char auth_gateway_name[256];
 	int destroy_nh;
@@ -199,6 +199,7 @@ typedef enum {
 
 typedef enum {
 	PFLAG_AUTH_CALLS,
+	PFLAG_AUTH_MESSAGES,
 	PFLAG_BLIND_REG,
 	PFLAG_AUTH_ALL,
 	PFLAG_FULL_ID,
@@ -239,6 +240,7 @@ typedef enum {
 	PFLAG_DISABLE_NAPTR,
 	PFLAG_AUTOFLUSH,
 	PFLAG_NAT_OPTIONS_PING,
+	PFLAG_UDP_NAT_OPTIONS_PING,
 	PFLAG_ALL_REG_OPTIONS_PING,
 	PFLAG_AUTOFIX_TIMING,
 	PFLAG_MESSAGE_QUERY_ON_REGISTER,
@@ -281,6 +283,11 @@ typedef enum {
 	PFLAG_FIRE_MESSAGE_EVENTS,
 	PFLAG_SEND_DISPLAY_UPDATE,
 	PFLAG_RUNNING_TRANS,
+	PFLAG_SOCKET_TCP_KEEPALIVE,
+	PFLAG_TCP_KEEPALIVE,
+	PFLAG_TCP_PINGPONG,
+	PFLAG_TCP_PING2PONG,
+	PFLAG_MESSAGES_RESPOND_200_OK,
 	/* No new flags below this line */
 	PFLAG_MAX
 } PFLAGS;
@@ -328,6 +335,7 @@ typedef enum {
 	TFLAG_INB_NOMEDIA,
 	TFLAG_LATE_NEGOTIATION,
 	TFLAG_SDP,
+	TFLAG_NEW_SDP,
 	TFLAG_VIDEO,
 	TFLAG_TPORT_LOG,
 	TFLAG_SENT_UPDATE,
@@ -391,6 +399,8 @@ struct mod_sofia_globals {
 	char *capture_server;	
 	int rewrite_multicasted_fs_path;
 	int presence_flush;
+	switch_thread_t *presence_thread;
+	uint32_t max_reg_threads;
 };
 extern struct mod_sofia_globals mod_sofia_globals;
 
@@ -431,6 +441,14 @@ typedef enum {
 } sofia_transport_t;
 
 typedef enum {
+	SOFIA_TLS_VERSION_SSLv2 = (1 << 0),
+	SOFIA_TLS_VERSION_SSLv3 = (1 << 1),
+	SOFIA_TLS_VERSION_TLSv1 = (1 << 2),
+	SOFIA_TLS_VERSION_TLSv1_1 = (1 << 3),
+	SOFIA_TLS_VERSION_TLSv1_2 = (1 << 4),
+} sofia_tls_version_t;
+
+typedef enum {
 	SOFIA_GATEWAY_DOWN,
 	SOFIA_GATEWAY_UP,
 
@@ -444,6 +462,7 @@ typedef enum {
 	SUB_STATE_SUBED,
 	SUB_STATE_UNSUBSCRIBE,
 	SUB_STATE_FAILED,
+	SUB_STATE_FAIL_WAIT,
 	SUB_STATE_EXPIRED,
 	SUB_STATE_NOSUB,
 	v_STATE_LAST
@@ -451,6 +470,7 @@ typedef enum {
 
 struct sofia_gateway_subscription {
 	sofia_gateway_t *gateway;
+	sofia_private_t *sofia_private;
 	nua_handle_t *nh;
 	char *expires_str;
 	char *event;				/* eg, 'message-summary' to subscribe to MWI events */
@@ -603,6 +623,7 @@ struct sofia_profile {
 	switch_port_t sip_port;
 	switch_port_t extsipport;
 	switch_port_t tls_sip_port;
+	char *tls_ciphers;
 	int tls_version;
 	unsigned int tls_timeout;
 	char *inbound_codec_string;
@@ -623,6 +644,7 @@ struct sofia_profile {
 	switch_payload_t cng_pt;
 	uint32_t codec_flags;
 	switch_mutex_t *ireg_mutex;
+	switch_mutex_t *dbh_mutex;
 	switch_mutex_t *gateway_mutex;
 	sofia_gateway_t *gateways;
 	//su_home_t *home;
@@ -694,16 +716,24 @@ struct sofia_profile {
 	su_strlst_t *tls_verify_in_subjects;
 	uint32_t sip_force_expires;
 	uint32_t sip_expires_max_deviation;
+	uint32_t sip_subscription_max_deviation;
 	int ireg_seconds;
 	sofia_paid_type_t paid_type;
 	uint32_t rtp_digit_delay;
 	switch_queue_t *event_queue;
+	switch_thread_t *thread;		
+	int socket_tcp_keepalive;
+	int tcp_keepalive;
+	int tcp_pingpong;
+	int tcp_ping2pong;
 };
 
 struct private_object {
 	sofia_private_t *sofia_private;
 	uint8_t flags[TFLAG_MAX];
 	switch_payload_t agreed_pt;
+	int channels;
+	int adv_channels;
 	switch_payload_t audio_recv_pt;
 	switch_payload_t video_recv_pt;
 	switch_core_session_t *session;
@@ -788,6 +818,7 @@ struct private_object {
 	switch_port_t stun_port;
 	uint32_t stun_flags;
 	unsigned long rm_rate;
+	unsigned long adv_rm_rate;
 	switch_payload_t pt;
 	switch_mutex_t *flag_mutex;
 	switch_mutex_t *sofia_mutex;
@@ -983,11 +1014,11 @@ void sofia_presence_event_handler(switch_event_t *event);
 void sofia_presence_cancel(void);
 switch_status_t config_sofia(sofia_config_t reload, char *profile_name);
 void sofia_reg_auth_challenge(sofia_profile_t *profile, nua_handle_t *nh, sofia_dispatch_event_t *de,
-							  sofia_regtype_t regtype, const char *realm, int stale);
+							  sofia_regtype_t regtype, const char *realm, int stale, long exptime);
 auth_res_t sofia_reg_parse_auth(sofia_profile_t *profile, sip_authorization_t const *authorization,
 								sip_t const *sip,
 								sofia_dispatch_event_t *de, const char *regstr, char *np, size_t nplen, char *ip, switch_event_t **v_event,
-								long exptime, sofia_regtype_t regtype, const char *to_user, switch_event_t **auth_params, long *reg_count);
+								long exptime, sofia_regtype_t regtype, const char *to_user, switch_event_t **auth_params, long *reg_count, switch_xml_t *user_xml);
 
 
 void sofia_reg_handle_sip_r_challenge(int status,
@@ -1034,16 +1065,17 @@ switch_call_cause_t sofia_glue_sip_cause_to_freeswitch(int status);
 void sofia_glue_do_xfer_invite(switch_core_session_t *session);
 uint8_t sofia_reg_handle_register(nua_t *nua, sofia_profile_t *profile, nua_handle_t *nh, sip_t const *sip,
 								sofia_dispatch_event_t *de,
-								  sofia_regtype_t regtype, char *key, uint32_t keylen, switch_event_t **v_event, const char *is_nat);
+								  sofia_regtype_t regtype, char *key, uint32_t keylen, switch_event_t **v_event, const char *is_nat, switch_xml_t *user_xml);
 extern switch_endpoint_interface_t *sofia_endpoint_interface;
 void sofia_presence_set_chat_hash(private_object_t *tech_pvt, sip_t const *sip);
 switch_status_t sofia_on_hangup(switch_core_session_t *session);
 char *sofia_glue_get_url_from_contact(char *buf, uint8_t to_dup);
+char *sofia_glue_get_path_from_contact(char *buf);
 void sofia_presence_set_hash_key(char *hash_key, int32_t len, sip_t const *sip);
 void sofia_glue_sql_close(sofia_profile_t *profile, time_t prune);
 int sofia_glue_init_sql(sofia_profile_t *profile);
 char *sofia_overcome_sip_uri_weakness(switch_core_session_t *session, const char *uri, const sofia_transport_t transport, switch_bool_t uri_only,
-									  const char *params);
+									  const char *params, const char *invite_tel_params);
 switch_bool_t sofia_glue_execute_sql_callback(sofia_profile_t *profile, switch_mutex_t *mutex, char *sql, switch_core_db_callback_func_t callback,
 											  void *pdata);
 char *sofia_glue_execute_sql2str(sofia_profile_t *profile, switch_mutex_t *mutex, char *sql, char *resbuf, size_t len);
@@ -1144,7 +1176,7 @@ int sofia_glue_toggle_hold(private_object_t *tech_pvt, int sendonly);
 const char *sofia_state_string(int state);
 switch_status_t sofia_glue_tech_set_codec(private_object_t *tech_pvt, int force);
 void sofia_wait_for_reply(struct private_object *tech_pvt, nua_event_t event, uint32_t timeout);
-void sofia_glue_set_image_sdp(private_object_t *tech_pvt, switch_t38_options_t *t38_options, int insist);
+void sofia_glue_set_udptl_image_sdp(private_object_t *tech_pvt, switch_t38_options_t *t38_options, int insist);
 
 /* 
  * Logging control functions
@@ -1228,5 +1260,5 @@ void sofia_queue_message(sofia_dispatch_event_t *de);
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

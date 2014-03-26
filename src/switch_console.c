@@ -33,6 +33,9 @@
 #include <switch.h>
 #include <switch_console.h>
 #include <switch_version.h>
+#ifndef _MSC_VER
+#include <switch_private.h>
+#endif
 #define CMD_BUFLEN 1024
 
 #ifdef SWITCH_HAVE_LIBEDIT
@@ -619,6 +622,36 @@ SWITCH_DECLARE_NONSTD(switch_status_t) switch_console_list_loaded_modules(const 
 	return SWITCH_STATUS_FALSE;
 }
 
+#ifdef HAVE_GETIFADDRS
+#include <ifaddrs.h>
+#include <net/if.h>
+SWITCH_DECLARE_NONSTD(switch_status_t) switch_console_list_interfaces(const char *line, const char *cursor, switch_console_callback_match_t **matches)
+{
+	struct match_helper h = { 0 };
+	struct ifaddrs *addrs, *addr;
+
+	getifaddrs(&addrs);
+	for(addr = addrs; addr; addr = addr->ifa_next) {
+		if (addr->ifa_flags & IFF_UP) {
+			switch_console_push_match_unique(&h.my_matches, addr->ifa_name);
+		}
+	}
+	freeifaddrs(addrs);
+
+	if (h.my_matches) {
+		*matches = h.my_matches;
+		return SWITCH_STATUS_SUCCESS;
+	}
+
+	return SWITCH_STATUS_FALSE;
+}
+#else
+SWITCH_DECLARE_NONSTD(switch_status_t) switch_console_list_interfaces(const char *line, const char *cursor, switch_console_callback_match_t **matches)
+{
+	return SWITCH_STATUS_FALSE;
+}
+#endif
+
 static int uuid_callback(void *pArg, int argc, char **argv, char **columnNames)
 {
 	struct match_helper *h = (struct match_helper *) pArg;
@@ -765,7 +798,7 @@ SWITCH_DECLARE(unsigned char) switch_console_complete(const char *line, const ch
 
 	if (h.words == 0) {
 		sql = switch_mprintf("select distinct name from interfaces where type='api' and name like '%q%%' and hostname='%q' order by name",
-							 buf, switch_core_get_switchname());
+							 buf, switch_core_get_hostname());
 	}
 
 	if (sql) {
@@ -793,7 +826,7 @@ SWITCH_DECLARE(unsigned char) switch_console_complete(const char *line, const ch
 
 		if (h.words == 0) {
 			stream.write_function(&stream, "select distinct a1 from complete where " "a1 not in (select name from interfaces where hostname='%s') %s ",
-								  switch_core_get_switchname(), argc ? "and" : "");
+								  switch_core_get_hostname(), argc ? "and" : "");
 		} else {
 			if (switch_cache_db_get_type(db) == SCDB_TYPE_CORE_DB) {
 				stream.write_function(&stream, "select distinct a%d,'%q','%q' from complete where ", h.words + 1, switch_str_nil(dup), switch_str_nil(lp));
@@ -822,7 +855,7 @@ SWITCH_DECLARE(unsigned char) switch_console_complete(const char *line, const ch
 			}
 		}
 
-		stream.write_function(&stream, " and hostname='%s' order by a%d", switch_core_get_switchname(), h.words + 1);
+		stream.write_function(&stream, " and hostname='%s' order by a%d", switch_core_get_hostname(), h.words + 1);
 		
 		switch_cache_db_execute_sql_callback(db, stream.data, comp_callback, &h, &errmsg);
 
@@ -1631,6 +1664,7 @@ SWITCH_DECLARE(switch_status_t) switch_console_init(switch_memory_pool_t *pool)
 	switch_core_hash_init(&globals.func_hash, pool);
 	switch_console_add_complete_func("::console::list_available_modules", (switch_console_complete_callback_t) switch_console_list_available_modules);
 	switch_console_add_complete_func("::console::list_loaded_modules", (switch_console_complete_callback_t) switch_console_list_loaded_modules);
+	switch_console_add_complete_func("::console::list_interfaces", (switch_console_complete_callback_t) switch_console_list_interfaces);
 	switch_console_add_complete_func("::console::list_uuid", (switch_console_complete_callback_t) switch_console_list_uuid);
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -1741,6 +1775,20 @@ SWITCH_DECLARE(void) switch_console_sort_matches(switch_console_callback_match_t
 	}
 }
 
+SWITCH_DECLARE(void) switch_console_push_match_unique(switch_console_callback_match_t **matches, const char *new_val)
+{
+	/* Ignore the entry if it is already in the list */
+	if (*matches) {
+		switch_console_callback_match_node_t *node;
+
+		for(node = (*matches)->head; node; node = node->next) {
+			if (!strcasecmp(node->val, new_val)) return;
+		}
+	}
+
+	switch_console_push_match(matches, new_val);
+}
+
 SWITCH_DECLARE(void) switch_console_push_match(switch_console_callback_match_t **matches, const char *new_val)
 {
 	switch_console_callback_match_node_t *match;
@@ -1811,7 +1859,7 @@ SWITCH_DECLARE(switch_status_t) switch_console_set_complete(const char *string)
 						}
 					}
 				}
-				mystream.write_function(&mystream, " '%s')", switch_core_get_switchname());
+				mystream.write_function(&mystream, " '%s')", switch_core_get_hostname());
 				switch_core_sql_exec(mystream.data);
 				status = SWITCH_STATUS_SUCCESS;
 			} else if (!strcasecmp(argv[0], "add")) {
@@ -1827,14 +1875,15 @@ SWITCH_DECLARE(switch_status_t) switch_console_set_complete(const char *string)
 						}
 					}
 				}
-				mystream.write_function(&mystream, " '%s')", switch_core_get_switchname());
+				mystream.write_function(&mystream, " '%s')", switch_core_get_hostname());
 
 				switch_core_sql_exec(mystream.data);
 				status = SWITCH_STATUS_SUCCESS;
 			} else if (!strcasecmp(argv[0], "del")) {
 				char *what = argv[1];
 				if (!strcasecmp(what, "*")) {
-					switch_core_sql_exec("delete from complete");
+					mystream.write_function(&mystream, "delete from complete where hostname='%s'", switch_core_get_hostname());
+					switch_core_sql_exec(mystream.data);
 				} else {
 					mystream.write_function(&mystream, "delete from complete where ");
 					for (x = 0; x < argc - 1; x++) {
@@ -1844,7 +1893,7 @@ SWITCH_DECLARE(switch_status_t) switch_console_set_complete(const char *string)
 							mystream.write_function(&mystream, "a%d = '%w'%w", x + 1, switch_str_nil(argv[x + 1]), x == argc - 2 ? "" : " and ");
 						}
 					}
-					mystream.write_function(&mystream, " and hostname='%s'", switch_core_get_switchname());
+					mystream.write_function(&mystream, " and hostname='%s'", switch_core_get_hostname());
 					switch_core_sql_exec(mystream.data);
 				}
 				status = SWITCH_STATUS_SUCCESS;
@@ -1871,6 +1920,11 @@ SWITCH_DECLARE(switch_status_t) switch_console_set_alias(const char *string)
 		if ((argc = switch_separate_string(mydata, ' ', argv, (sizeof(argv) / sizeof(argv[0])))) >= 2) {
 			switch_cache_db_handle_t *db = NULL;
 			char *sql = NULL;
+
+			if (!strcmp(argv[1], argv[2])) {
+				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Alias and command cannot be the same, this will cause loop!\n");
+				return SWITCH_STATUS_FALSE;
+			}
 
 			if (switch_core_db_handle(&db) != SWITCH_STATUS_SUCCESS) {
 				switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Database Error\n");
@@ -1937,5 +1991,5 @@ SWITCH_DECLARE(switch_status_t) switch_console_set_alias(const char *string)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

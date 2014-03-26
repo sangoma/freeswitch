@@ -1737,7 +1737,7 @@ SWITCH_STANDARD_API(erlang_cmd)
 				stream->write_function(stream, "directory\n");
 			} else if (ptr->section == SWITCH_XML_SECTION_DIALPLAN) {
 				stream->write_function(stream, "dialplan\n");
-			} else if (ptr->section == SWITCH_XML_SECTION_PHRASES) {
+			} else if (ptr->section == SWITCH_XML_SECTION_LANGUAGES) {
 				stream->write_function(stream, "phrases\n");
 			} else if (ptr->section == SWITCH_XML_SECTION_CHATPLAN) {
 				stream->write_function(stream, "chatplan\n");
@@ -2064,5 +2064,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_erlang_event_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

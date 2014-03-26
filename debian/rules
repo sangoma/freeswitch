@@ -2,19 +2,22 @@
 # -*- mode:makefile -*-
 ##### Author: Travis Cross <tc@traviscross.com>
 
-#export DH_VERBOSE=1
+export DH_VERBOSE=1
+export VERBOSE=1
 
 FS_CC?=gcc
 FS_CXX?=g++
-FS_CFLAGS?=-ggdb3 -O2 -fPIC
-FS_CPPFLAGS?=
+FS_CPPFLAGS?=-D_FORTIFY_SOURCE=2
+FS_CFLAGS?=-g3 -O2 -fPIC -fstack-protector --param=ssp-buffer-size=4
 FS_CXXFLAGS?=$(FS_CFLAGS)
+FS_LDFLAGS?=-Wl,-z,relro
 export PATH?=/usr/lib/ccache:/usr/sbin:/usr/bin:/sbin:/bin
-export CC=$(FS_CC)
-export CXX=$(FS_CXX)
-export CFLAGS=$(FS_CFLAGS)
-export CPPFLAGS=$(FS_CPPFLAGS)
-export CXXFLAGS=$(FS_CXXFLAGS)
+export CC:=$(FS_CC)
+export CXX:=$(FS_CXX)
+export CPPFLAGS:=$(FS_CPPFLAGS)
+export CFLAGS:=$(FS_CFLAGS)
+export CXXFLAGS:=$(FS_CXXFLAGS)
+export LDFLAGS:=$(FS_LDFLAGS)
 
 show_vars= \
 	echo; \
@@ -22,8 +25,10 @@ show_vars= \
 	echo "PATH='$(PATH)'"; \
 	echo "CC='$(CC)'"; \
 	echo "CXX='$(CXX)'"; \
+	echo "CPPFLAGS='$(CPPFLAGS)'"; \
 	echo "CFLAGS='$(CFLAGS)'"; \
 	echo "CXXFLAGS='$(CXXFLAGS)'"; \
+	echo "LDFLAGS='$(LDFLAGS)'"; \
 	echo "CCACHE_DIR='$(CCACHE_DIR)'"; \
 	echo;
 
@@ -73,7 +78,9 @@ override_dh_auto_clean:
 		--with-dbdir=/var/lib/freeswitch/db \
 		--with-htdocsdir=/usr/share/freeswitch/htdocs \
 		--with-soundsdir=/usr/share/freeswitch/sounds \
+		--with-storagedir=/var/lib/freeswitch/storage \
 		--with-grammardir=/usr/share/freeswitch/grammar \
+		--with-certsdir=/etc/freeswitch/tls \
 		--with-scriptdir=/usr/share/freeswitch/scripts \
 		--with-recordingsdir=/var/lib/freeswitch/recordings
 	touch $@
@@ -101,6 +108,13 @@ override_dh_auto_install:
 
 override_dh_installinit:
 	dh_installinit -pfreeswitch-sysvinit --name=freeswitch
+	dh_installinit -pfreeswitch-all --name=freeswitch
+
+override_dh_makeshlibs:
+	dh_makeshlibs
+	sed \
+	  -e '/^libfreeswitch 1/{s/freeswitch-all/libfreeswitch1/g}' \
+	  -i debian/freeswitch-all/DEBIAN/shlibs
 
 debian-bootstrap: debian/.stamp-bootstrap
 debian/.stamp-bootstrap:
@@ -123,4 +137,3 @@ binary-quicktest:
 	echo "applications/mod_commands" > debian/modules.conf
 	(cd debian && ./bootstrap.sh)
 	dh binary
-

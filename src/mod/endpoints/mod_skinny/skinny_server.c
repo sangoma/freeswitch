@@ -33,30 +33,52 @@
 #include "mod_skinny.h"
 #include "skinny_protocol.h"
 #include "skinny_tables.h"
-#include "skinny_labels.h"
 #include "skinny_server.h"
 
-struct soft_key_template_definition soft_key_template_default[] = {
-	{ SKINNY_DISP_REDIAL, SOFTKEY_REDIAL },
-	{ SKINNY_DISP_NEWCALL, SOFTKEY_NEWCALL },
-	{ SKINNY_DISP_HOLD, SOFTKEY_HOLD },
-	{ SKINNY_DISP_TRANSFER, SOFTKEY_TRANSFER },
-	{ SKINNY_DISP_CFWDALL, SOFTKEY_CFWDALL },
-	{ SKINNY_DISP_CFWDBUSY, SOFTKEY_CFWDBUSY },
-	{ SKINNY_DISP_CFWDNOANSWER, SOFTKEY_CFWDNOANSWER },
-	{ SKINNY_DISP_BACKSPACE, SOFTKEY_BACKSPACE },
-	{ SKINNY_DISP_ENDCALL, SOFTKEY_ENDCALL },
-	{ SKINNY_DISP_RESUME, SOFTKEY_RESUME },
-	{ SKINNY_DISP_ANSWER, SOFTKEY_ANSWER },
-	{ SKINNY_DISP_INFO, SOFTKEY_INFO },
-	{ SKINNY_DISP_CONFRM, SOFTKEY_CONFRM },
-	{ SKINNY_DISP_PARK, SOFTKEY_PARK },
-	{ SKINNY_DISP_JOIN, SOFTKEY_JOIN },
-	{ SKINNY_DISP_MEETME, SOFTKEY_MEETMECONFRM },
-	{ SKINNY_DISP_CALLPICKUP, SOFTKEY_CALLPICKUP },
-	{ SKINNY_DISP_GRPCALLPICKUP, SOFTKEY_GRPCALLPICKUP },
-	{ SKINNY_DISP_DND, SOFTKEY_DND },
-	{ SKINNY_DISP_IDIVERT, SOFTKEY_IDIVERT },
+uint32_t soft_key_template_default_textids[] = {
+	SKINNY_TEXTID_REDIAL,
+	SKINNY_TEXTID_NEWCALL,
+	SKINNY_TEXTID_HOLD,
+	SKINNY_TEXTID_TRANSFER,
+	SKINNY_TEXTID_CFWDALL,
+	SKINNY_TEXTID_CFWDBUSY,
+	SKINNY_TEXTID_CFWDNOANSWER,
+	SKINNY_TEXTID_BACKSPACE,
+	SKINNY_TEXTID_ENDCALL,
+	SKINNY_TEXTID_RESUME,
+	SKINNY_TEXTID_ANSWER,
+	SKINNY_TEXTID_INFO,
+	SKINNY_TEXTID_CONF,
+	SKINNY_TEXTID_PARK,
+	SKINNY_TEXTID_JOIN,
+	SKINNY_TEXTID_MEETME,
+	SKINNY_TEXTID_CALLPICKUP,
+	SKINNY_TEXTID_GRPCALLPICKUP,
+	SKINNY_TEXTID_DND,
+	SKINNY_TEXTID_IDIVERT
+};
+
+uint32_t soft_key_template_default_events[] = {
+	SOFTKEY_REDIAL,
+	SOFTKEY_NEWCALL,
+	SOFTKEY_HOLD,
+	SOFTKEY_TRANSFER,
+	SOFTKEY_CFWDALL,
+	SOFTKEY_CFWDBUSY,
+	SOFTKEY_CFWDNOANSWER,
+	SOFTKEY_BACKSPACE,
+	SOFTKEY_ENDCALL,
+	SOFTKEY_RESUME,
+	SOFTKEY_ANSWER,
+	SOFTKEY_INFO,
+	SOFTKEY_CONF,
+	SOFTKEY_PARK,
+	SOFTKEY_JOIN,
+	SOFTKEY_MEETME,
+	SOFTKEY_CALLPICKUP,
+	SOFTKEY_GRPCALLPICKUP,
+	SOFTKEY_DND,
+	SOFTKEY_IDIVERT
 };
 
 /*****************************************************************************/
@@ -91,20 +113,18 @@ switch_status_t skinny_create_incoming_session(listener_t *listener, uint32_t *l
 	skinny_line_get(listener, *line_instance_p, &button);
 
 	if (!button || !button->shortname) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Line %d not found on device %s %d\n",
-				*line_instance_p, listener->device_name, listener->device_instance);
+		skinny_log_l(listener, SWITCH_LOG_CRIT, "Line %d not found on device\n", *line_instance_p);
 		goto error;
 	}
 
 	if (!(nsession = switch_core_session_request(skinny_get_endpoint_interface(),
 					SWITCH_CALL_DIRECTION_INBOUND, SOF_NONE, NULL))) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Error Creating Session\n");
+		skinny_log_l_msg(listener, SWITCH_LOG_CRIT, "Error Creating Session\n");
 		goto error;
 	}
 
 	if (!(tech_pvt = (struct private_object *) switch_core_session_alloc(nsession, sizeof(*tech_pvt)))) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(nsession), SWITCH_LOG_CRIT, 
-				"Error Creating Session private object\n");
+		skinny_log_ls_msg(listener, nsession, SWITCH_LOG_CRIT, "Error Creating Session private object\n");
 		goto error;
 	}
 
@@ -119,13 +139,11 @@ switch_status_t skinny_create_incoming_session(listener_t *listener, uint32_t *l
 	switch_channel_set_name(channel, name);
 
 	if (switch_core_session_thread_launch(nsession) != SWITCH_STATUS_SUCCESS) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(nsession), SWITCH_LOG_CRIT, 
-				"Error Creating Session thread\n");
+		skinny_log_ls_msg(listener, nsession, SWITCH_LOG_CRIT, "Error Creating Session thread\n");
 		goto error;
 	}
 	if (switch_core_session_read_lock(nsession) != SWITCH_STATUS_SUCCESS) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(nsession), SWITCH_LOG_CRIT, 
-				"Error Locking Session\n");
+		skinny_log_ls_msg(listener, nsession, SWITCH_LOG_CRIT, "Error Locking Session\n");
 		goto error;
 	}
 	/* First create the caller profile in the patterns Dialplan */
@@ -136,8 +154,7 @@ switch_status_t skinny_create_incoming_session(listener_t *listener, uint32_t *l
 					"skinny" /* modname */,
 					listener->profile->patterns_context, 
 					"")) != 0) {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(nsession), SWITCH_LOG_CRIT,
-				"Error Creating Session caller profile\n");
+		skinny_log_ls_msg(listener, nsession, SWITCH_LOG_CRIT, "Error Creating Session caller profile\n");
 		goto error;
 	}
 
@@ -146,9 +163,9 @@ switch_status_t skinny_create_incoming_session(listener_t *listener, uint32_t *l
 	if ((sql = switch_mprintf(
 					"INSERT INTO skinny_active_lines "
 					"(device_name, device_instance, line_instance, channel_uuid, call_id, call_state) "
-					"SELECT device_name, device_instance, line_instance, '%s', %d, %d "
+					"SELECT device_name, device_instance, line_instance, '%q', %d, %d "
 					"FROM skinny_lines "
-					"WHERE value='%s'",
+					"WHERE value='%q'",
 					switch_core_session_get_uuid(nsession), tech_pvt->call_id, SKINNY_ON_HOOK, button->shortname
 				 ))) {
 		skinny_execute_sql(listener->profile, sql, listener->profile->sql_mutex);
@@ -161,14 +178,15 @@ switch_status_t skinny_create_incoming_session(listener_t *listener, uint32_t *l
 	send_set_lamp(listener, SKINNY_BUTTON_LINE, *line_instance_p, SKINNY_LAMP_ON);
 	skinny_line_set_state(listener, *line_instance_p, tech_pvt->call_id, SKINNY_OFF_HOOK);
 	send_select_soft_keys(listener, *line_instance_p, tech_pvt->call_id, SKINNY_KEY_SET_OFF_HOOK, 0xffff);
-	send_display_prompt_status(listener, 0, "\200\000",
-			*line_instance_p, tech_pvt->call_id);
+
+	send_display_prompt_status_textid(listener, 0, SKINNY_TEXTID_ENTER_NUMBER, *line_instance_p, tech_pvt->call_id);
+
 	send_activate_call_plane(listener, *line_instance_p);
 	if (switch_channel_get_state(channel) == CS_NEW) {
 		switch_channel_set_state(channel, CS_HIBERNATE);
 	} else {
-		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(nsession), SWITCH_LOG_CRIT, 
-				"Wow! this channel should be in CS_NEW state, but it is not!\n");
+		skinny_log_ls_msg(listener, nsession, SWITCH_LOG_CRIT, 
+			"Wow! this channel should be in CS_NEW state, but it is not!\n");
 	}
 
 	goto done;
@@ -347,7 +365,7 @@ switch_status_t skinny_session_send_call_info(switch_core_session_t *session, li
 	} else {
 		call_type = SKINNY_OUTBOUND_CALL;
 	}
-	skinny_send_call_info(listener,
+	send_call_info(listener,
 			caller_party_name, /* char calling_party_name[40], */
 			caller_party_number, /* char calling_party[24], */
 			called_party_name, /* char called_party_name[40], */
@@ -420,6 +438,7 @@ switch_status_t skinny_session_send_call_info_all(switch_core_session_t *session
 struct skinny_session_set_variables_helper {
 	private_t *tech_pvt;
 	switch_channel_t *channel;
+	listener_t *listener;
 	uint32_t count;
 };
 
@@ -445,6 +464,9 @@ int skinny_session_set_variables_callback(void *pArg, int argc, char **argv, cha
 
 	struct skinny_session_set_variables_helper *helper = pArg;
 	char *tmp;
+	listener_t *listener;
+
+	switch_xml_t xroot, xdomain, xuser, xvariables, xvariable;
 
 	helper->count++;
 	switch_channel_set_variable_name_printf(helper->channel, device_name, "skinny_device_name_%d", helper->count);
@@ -464,6 +486,50 @@ int skinny_session_set_variables_callback(void *pArg, int argc, char **argv, cha
 	switch_channel_set_variable_name_printf(helper->channel, value, "skinny_line_value_%d", helper->count);
 	switch_channel_set_variable_name_printf(helper->channel, caller_name, "skinny_line_caller_name_%d", helper->count);
 
+	listener = helper->listener;
+
+	if ( ! listener ) {
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(helper->tech_pvt->session), SWITCH_LOG_DEBUG, 
+			"no defined listener on channel var setup, will not attempt to set variables\n");
+		return(0);
+	}
+
+	/* Process through and extract any variables from the user and set in the channel */
+	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(helper->tech_pvt->session), SWITCH_LOG_DEBUG, 
+			"searching for user (id=%s) in profile %s in channel var setup\n", 
+			listener->device_name, listener->profile->domain);
+
+	if (switch_xml_locate_user("id", listener->device_name, listener->profile->domain, "", 
+		&xroot, &xdomain, &xuser, NULL, NULL) != SWITCH_STATUS_SUCCESS) {
+
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(helper->tech_pvt->session), SWITCH_LOG_WARNING, 
+				"unable to find user (id=%s) in channel var setup\n", listener->device_name);
+	}
+
+	if ( xuser ) {
+		char *uid = (char *) switch_xml_attr_soft(xuser, "id");
+
+		switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(helper->tech_pvt->session), SWITCH_LOG_DEBUG, 
+				"found user (id=%s) in channel var setup\n", uid);
+
+		if ((xvariables = switch_xml_child(xuser, "variables"))) {
+			
+			for (xvariable = switch_xml_child(xvariables, "variable"); xvariable; xvariable = xvariable->next) {
+				char *name = (char *) switch_xml_attr_soft(xvariable, "name");
+				char *value = (char *) switch_xml_attr_soft(xvariable, "value");
+
+				switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(helper->tech_pvt->session), SWITCH_LOG_DEBUG, 
+					"found variable (%s=%s) for user (%s) in channel var setup\n", name, value, listener->device_name);
+
+				switch_channel_set_variable_name_printf(helper->channel, value, "%s", name);
+			}
+		}
+	}
+
+	if ( xroot ) {
+		switch_xml_free(xroot);
+	}
+
 	return 0;
 }
 
@@ -474,6 +540,7 @@ switch_status_t skinny_session_set_variables(switch_core_session_t *session, lis
 
 	helper.tech_pvt = switch_core_session_get_private(session);
 	helper.channel = switch_core_session_get_channel(session);
+	helper.listener = listener;
 	helper.count = 0;
 
 	switch_channel_set_variable(helper.channel, "skinny_profile_name", helper.tech_pvt->profile->name);
@@ -499,6 +566,7 @@ int skinny_ring_lines_callback(void *pArg, int argc, char **argv, char **columnN
 {
 	struct skinny_ring_lines_helper *helper = pArg;
 	char *tmp;
+	char *label;
 
 	char *device_name = argv[0];
 	uint32_t device_instance = atoi(argv[1]);
@@ -519,14 +587,23 @@ int skinny_ring_lines_callback(void *pArg, int argc, char **argv, char **columnN
 	/* uint32_t call_state = atoi(argv[16]); */
 
 	listener_t *listener = NULL;
+	uint32_t active_calls = 0;
 
 	skinny_profile_find_listener_by_device_name_and_instance(helper->tech_pvt->profile, 
 			device_name, device_instance, &listener);
-	if(listener) {
+	if(listener && helper->tech_pvt->session && helper->remote_session) {
 		switch_channel_t *channel = switch_core_session_get_channel(helper->tech_pvt->session);
+		switch_channel_set_state(channel, CS_ROUTING);
 		helper->lines_count++;
 		switch_channel_set_variable(channel, "effective_callee_id_number", value);
 		switch_channel_set_variable(channel, "effective_callee_id_name", caller_name);
+	
+		active_calls = skinny_line_count_active(listener);
+
+		skinny_log_l(listener, SWITCH_LOG_DEBUG, 
+			"Ring Lines Callback with Callee Number (%s), Caller Name (%s), Dest Number (%s), Active Calls (%d)\n",
+			value, caller_name, helper->tech_pvt->caller_profile->destination_number, active_calls);
+
 		if (helper->remote_session) {
 			switch_core_session_message_t msg = { 0 };
 			msg.message_id = SWITCH_MESSAGE_INDICATE_DISPLAY;
@@ -543,18 +620,28 @@ int skinny_ring_lines_callback(void *pArg, int argc, char **argv, char **columnN
 
 		skinny_line_set_state(listener, line_instance, helper->tech_pvt->call_id, SKINNY_RING_IN);
 		send_select_soft_keys(listener, line_instance, helper->tech_pvt->call_id, SKINNY_KEY_SET_RING_IN, 0xffff);
-		if ((tmp = switch_mprintf("%s%s", SKINNY_DISP_FROM, helper->tech_pvt->caller_profile->destination_number))) {
+
+		label = skinny_textid2raw(SKINNY_TEXTID_FROM);
+		if ((tmp = switch_mprintf("%s%s", label, helper->tech_pvt->caller_profile->destination_number))) {
 			send_display_prompt_status(listener, 0, tmp, line_instance, helper->tech_pvt->call_id);
 			switch_safe_free(tmp);
 		}
+		switch_safe_free(label);
+
 		if ((tmp = switch_mprintf("\005\000\000\000%s", helper->tech_pvt->caller_profile->destination_number))) {
 			send_display_pri_notify(listener, 10 /* message_timeout */, 5 /* priority */, tmp);
 			switch_safe_free(tmp);
 		}
 		skinny_session_send_call_info(helper->tech_pvt->session, listener, line_instance);
 		send_set_lamp(listener, SKINNY_BUTTON_LINE, line_instance, SKINNY_LAMP_BLINK);
-		send_set_ringer(listener, SKINNY_RING_INSIDE, SKINNY_RING_FOREVER, 0, helper->tech_pvt->call_id);
-		switch_channel_mark_ring_ready(channel);
+
+		if ( active_calls < 1 ) {
+			send_set_ringer(listener, SKINNY_RING_INSIDE, SKINNY_RING_FOREVER, 0, helper->tech_pvt->call_id);
+		} else {
+			send_start_tone(listener, SKINNY_TONE_CALLWAITTONE, 0, line_instance, helper->tech_pvt->call_id);
+			send_stop_tone(listener, line_instance, helper->tech_pvt->call_id);
+		}
+		switch_channel_ring_ready(channel);
 	}
 	return 0;
 }
@@ -598,7 +685,9 @@ switch_status_t skinny_session_ring_out(switch_core_session_t *session, listener
 	send_start_tone(listener, SKINNY_TONE_ALERT, 0, line_instance, tech_pvt->call_id);
 	skinny_line_set_state(listener, line_instance, tech_pvt->call_id, SKINNY_RING_OUT);
 	send_select_soft_keys(listener, line_instance, tech_pvt->call_id, SKINNY_KEY_SET_RING_OUT, 0xffff);
-	send_display_prompt_status(listener, 0, SKINNY_DISP_RING_OUT, line_instance, tech_pvt->call_id);
+
+	send_display_prompt_status_textid(listener, 0, SKINNY_TEXTID_RING_OUT, line_instance, tech_pvt->call_id);
+
 	skinny_session_send_call_info(session, listener, line_instance);
 
 	return SWITCH_STATUS_SUCCESS;
@@ -640,12 +729,17 @@ int skinny_session_answer_callback(void *pArg, int argc, char **argv, char **col
 				&& (device_instance == helper->listener->device_instance)
 				&& (line_instance == helper->line_instance)) {/* the answering line */
 			/* nothing */
+			skinny_log_l_msg(listener, SWITCH_LOG_DEBUG, "Session Answer Callback - matched helper\n");
 		} else {
+			skinny_log_l_msg(listener, SWITCH_LOG_DEBUG, "Session Answer Callback\n");
+
 			send_define_current_time_date(listener);
 			send_set_lamp(listener, SKINNY_BUTTON_LINE, line_instance, SKINNY_LAMP_ON);
 			skinny_line_set_state(listener, line_instance, helper->tech_pvt->call_id, SKINNY_IN_USE_REMOTELY);
 			send_select_soft_keys(listener, line_instance, helper->tech_pvt->call_id, 10, 0x0002);
-			send_display_prompt_status(listener, 0, SKINNY_DISP_IN_USE_REMOTE, line_instance, helper->tech_pvt->call_id);
+
+			send_display_prompt_status_textid(listener, 0, SKINNY_TEXTID_IN_USE_REMOTE, line_instance, helper->tech_pvt->call_id);
+
 			send_set_ringer(listener, SKINNY_RING_OFF, SKINNY_RING_FOREVER, 0, helper->tech_pvt->call_id);
 		}
 	}
@@ -661,6 +755,8 @@ switch_status_t skinny_session_answer(switch_core_session_t *session, listener_t
 	switch_assert(session);
 	switch_assert(listener);
 	switch_assert(listener->profile);
+
+	skinny_hold_active_calls(listener);
 
 	channel = switch_core_session_get_channel(session);
 	tech_pvt = switch_core_session_get_private(session);
@@ -702,11 +798,11 @@ switch_status_t skinny_session_start_media(switch_core_session_t *session, liste
 		send_open_receive_channel(listener,
 				tech_pvt->call_id, /* uint32_t conference_id, */
 				tech_pvt->call_id, /* uint32_t pass_thru_party_id, */
-				20, /* uint32_t packets, */
+				SKINNY_PTIME, /* uint32_t ms_per_packet, */
 				SKINNY_CODEC_ULAW_64K, /* uint32_t payload_capacity, */
 				0, /* uint32_t echo_cancel_type, */
 				0, /* uint32_t g723_bitrate, */
-				0, /* uint32_t conference_id2, */
+				tech_pvt->call_id, /* uint32_t conference_id2, */
 				0 /* uint32_t reserved[10] */
 				);
 	}
@@ -714,11 +810,8 @@ switch_status_t skinny_session_start_media(switch_core_session_t *session, liste
 		skinny_line_set_state(listener, line_instance, tech_pvt->call_id, SKINNY_CONNECTED);
 		send_select_soft_keys(listener, line_instance, tech_pvt->call_id,
 				SKINNY_KEY_SET_CONNECTED, 0xffff);
-		send_display_prompt_status(listener,
-				0,
-				SKINNY_DISP_CONNECTED,
-				line_instance,
-				tech_pvt->call_id);
+
+		send_display_prompt_status_textid(listener, 0, SKINNY_TEXTID_CONNECTED, line_instance, tech_pvt->call_id);
 	}
 	skinny_session_send_call_info(session, listener, line_instance);
 
@@ -742,8 +835,9 @@ switch_status_t skinny_session_hold_line(switch_core_session_t *session, listene
 	send_set_lamp(listener, SKINNY_BUTTON_LINE, line_instance, SKINNY_LAMP_WINK);
 	skinny_line_set_state(listener, line_instance, tech_pvt->call_id, SKINNY_HOLD);
 	send_select_soft_keys(listener, line_instance, tech_pvt->call_id, SKINNY_KEY_SET_ON_HOLD, 0xffff);
-	send_display_prompt_status(listener, 0, SKINNY_DISP_HOLD,
-			line_instance, tech_pvt->call_id);
+
+	send_display_prompt_status_textid(listener, 0, SKINNY_TEXTID_HOLD, line_instance, tech_pvt->call_id);
+
 	skinny_session_send_call_info(tech_pvt->session, listener, line_instance);
 	send_set_speaker_mode(listener, SKINNY_SPEAKER_OFF);
 	send_set_ringer(listener, SKINNY_RING_OFF, SKINNY_RING_FOREVER, 0, tech_pvt->call_id);
@@ -765,7 +859,25 @@ switch_status_t skinny_session_unhold_line(switch_core_session_t *session, liste
 	send_set_ringer(listener, SKINNY_RING_OFF, SKINNY_RING_FOREVER, 0, tech_pvt->call_id);
 	send_set_speaker_mode(listener, SKINNY_SPEAKER_ON);
 	send_select_soft_keys(listener, line_instance, tech_pvt->call_id, SKINNY_KEY_SET_RING_OUT, 0xffff);
-	skinny_session_start_media(session, listener, line_instance);
+
+	send_stop_tone(listener, line_instance, tech_pvt->call_id);
+	send_open_receive_channel(listener,
+		tech_pvt->call_id, /* uint32_t conference_id, */
+		tech_pvt->call_id, /* uint32_t pass_thru_party_id, */
+		SKINNY_PTIME, /* uint32_t ms_per_packet, */
+		SKINNY_CODEC_ULAW_64K, /* uint32_t payload_capacity, */
+		0, /* uint32_t echo_cancel_type, */
+		0, /* uint32_t g723_bitrate, */
+		tech_pvt->call_id, /* uint32_t conference_id2, */
+		0 /* uint32_t reserved[10] */
+		);
+
+	skinny_line_set_state(listener, line_instance, tech_pvt->call_id, SKINNY_CONNECTED);
+	send_select_soft_keys(listener, line_instance, tech_pvt->call_id, SKINNY_KEY_SET_CONNECTED, 0xffff);
+
+	send_display_prompt_status_textid(listener, 0, SKINNY_TEXTID_CONNECTED, line_instance, tech_pvt->call_id);
+	skinny_session_send_call_info(session, listener, line_instance);
+
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -905,13 +1017,10 @@ switch_status_t skinny_hold_active_calls(listener_t *listener)
 /*****************************************************************************/
 switch_status_t skinny_handle_keep_alive_message(listener_t *listener, skinny_message_t *request)
 {
-	skinny_message_t *message;
-
-	message = switch_core_alloc(listener->pool, 12);
-	message->type = KEEP_ALIVE_ACK_MESSAGE;
-	message->length = 4;
 	keepalive_listener(listener, NULL);
-	skinny_send_reply(listener, message);
+
+	send_keep_alive_ack(listener);
+
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -931,14 +1040,17 @@ switch_status_t skinny_handle_register(listener_t *listener, skinny_message_t *r
 
 	if (!zstr(listener->device_name)) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
-				"A device is already registred on this listener.\n");
-		send_register_reject(listener, "A device is already registred on this listener");
+				"A device is already registered on this listener.\n");
+		send_register_reject(listener, "A device is already registered on this listener");
 		return SWITCH_STATUS_FALSE;
 	}
 
 	/* Check directory */
 	skinny_device_event(listener, &params, SWITCH_EVENT_REQUEST_PARAMS, SWITCH_EVENT_SUBCLASS_ANY);
 	switch_event_add_header_string(params, SWITCH_STACK_BOTTOM, "action", "skinny-auth");
+
+	/* clean up all traces before adding to database */
+	skinny_clean_device_from_db(listener, request->data.reg.device_name);
 
 	if (switch_xml_locate_user("id", request->data.reg.device_name, profile->domain, "", &xroot, &xdomain, &xuser, &xgroup, params) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Can't find device [%s@%s]\n"
@@ -949,13 +1061,18 @@ switch_status_t skinny_handle_register(listener_t *listener, skinny_message_t *r
 		goto end;
 	}
 
+	/* we clean up device above, so this below block will never trigger. I don't
+		know the full details of why there would be multiple listeners with 
+		the same device - maybe a VGC or similar? Not really high priority for
+		support at the moment, but may need to revisit this later */
+
 	skinny_profile_find_listener_by_device_name_and_instance(listener->profile,
 			request->data.reg.device_name, request->data.reg.instance, &listener2);
 	if (listener2) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
-				"Device %s:%d is already registred on another listener.\n",
+				"Device %s:%d is already registered on another listener.\n",
 				request->data.reg.device_name, request->data.reg.instance);
-		send_register_reject(listener, "Device is already registred on another listener");
+		send_register_reject(listener, "Device is already registered on another listener");
 		status =  SWITCH_STATUS_FALSE;
 		goto end;
 	}
@@ -963,7 +1080,7 @@ switch_status_t skinny_handle_register(listener_t *listener, skinny_message_t *r
 	if ((sql = switch_mprintf(
 					"INSERT INTO skinny_devices "
 					"(name, user_id, instance, ip, type, max_streams, codec_string) "
-					"VALUES ('%s','%d','%d', '%s', '%d', '%d', '%s')",
+					"VALUES ('%q','%d','%d', '%q', '%d', '%d', '%q')",
 					request->data.reg.device_name,
 					request->data.reg.user_id,
 					request->data.reg.instance,
@@ -991,6 +1108,26 @@ switch_status_t skinny_handle_register(listener_t *listener, skinny_message_t *r
 					strncpy(listener->firmware_version, value, 16);
 				} else if (!strcasecmp(name, "skinny-soft-key-set-set")) {
 					listener->soft_key_set_set = switch_core_strdup(profile->pool, value);
+				} else if (!strcasecmp(name, "ext-voicemail")) {
+					if (!listener->ext_voicemail || strcmp(value,listener->ext_voicemail)) {
+						listener->ext_voicemail = switch_core_strdup(profile->pool, value);
+					}
+				} else if (!strcasecmp(name, "ext-redial")) {
+					if (!listener->ext_redial || strcmp(value,listener->ext_redial)) {
+						listener->ext_redial = switch_core_strdup(profile->pool, value);
+					}
+				} else if (!strcasecmp(name, "ext-meetme")) {
+					if (!listener->ext_meetme || strcmp(value,listener->ext_meetme)) {
+						listener->ext_meetme = switch_core_strdup(profile->pool, value);
+					}
+				} else if (!strcasecmp(name, "ext-pickup")) {
+					if (!listener->ext_pickup || strcmp(value,listener->ext_pickup)) {
+						listener->ext_pickup = switch_core_strdup(profile->pool, value);
+					}
+				} else if (!strcasecmp(name, "ext-cfwdall")) {
+					if (!listener->ext_cfwdall || strcmp(value,listener->ext_cfwdall)) {
+						listener->ext_cfwdall = switch_core_strdup(profile->pool, value);
+					}
 				}
 			}
 		}
@@ -1021,7 +1158,7 @@ switch_status_t skinny_handle_register(listener_t *listener, skinny_message_t *r
 									"label, value, caller_name, "
 									"ring_on_idle, ring_on_active, busy_trigger, "
 									"forward_all, forward_busy, forward_noanswer, noanswer_duration) "
-									"VALUES('%s', %d, %d, %d, '%s', '%s', '%s', %d, %d, %d, '%s', '%s', '%s', %d)",
+									"VALUES('%q', %d, %d, %d, '%q', '%q', '%q', %d, %d, %d, '%q', '%q', '%q', %d)",
 									request->data.reg.device_name, request->data.reg.instance, position, line_instance,
 									label, value, caller_name,
 									ring_on_idle, ring_on_active, busy_trigger,
@@ -1049,7 +1186,7 @@ switch_status_t skinny_handle_register(listener_t *listener, skinny_message_t *r
 					if ((sql = switch_mprintf(
 									"INSERT INTO skinny_buttons "
 									"(device_name, device_instance, position, type, label, value, settings) "
-									"VALUES('%s', %d, %d, %d, '%s', '%s', '%s')",
+									"VALUES('%q', %d, %d, %d, '%q', '%q', '%q')",
 									request->data.reg.device_name,
 									request->data.reg.instance,
 									position,
@@ -1103,7 +1240,7 @@ switch_status_t skinny_handle_port_message(listener_t *listener, skinny_message_
 	skinny_check_data_length(request, sizeof(request->data.as_uint16));
 
 	if ((sql = switch_mprintf(
-					"UPDATE skinny_devices SET port=%d WHERE name='%s' and instance=%d",
+					"UPDATE skinny_devices SET port=%d WHERE name='%q' and instance=%d",
 					request->data.port.port,
 					listener->device_name,
 					listener->device_instance
@@ -1130,6 +1267,11 @@ switch_status_t skinny_handle_keypad_button_message(listener_t *listener, skinny
 	}
 
 	session = skinny_profile_find_session(listener->profile, listener, &line_instance, call_id);
+	if ( !session )
+	{
+		line_instance = 0;
+		session = skinny_profile_find_session(listener->profile, listener, &line_instance, 0);
+	}
 
 	if(session) {
 		switch_channel_t *channel = NULL;
@@ -1145,7 +1287,7 @@ switch_status_t skinny_handle_keypad_button_message(listener_t *listener, skinny
 			digit = '*';
 		} else if (request->data.keypad_button.button == 15) {
 			digit = '#';
-		} else if (request->data.keypad_button.button >= 0 && request->data.keypad_button.button <= 9) {
+		} else if (request->data.keypad_button.button <= 9) { /* unsigned, so guaranteed to be >= 0 */
 			digit = '0' + request->data.keypad_button.button;
 		} else {
 			switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_WARNING, "UNKNOW DTMF RECEIVED ON CALL %d [%d]\n", tech_pvt->call_id, request->data.keypad_button.button);
@@ -1203,6 +1345,9 @@ switch_status_t skinny_handle_stimulus_message(listener_t *listener, skinny_mess
 	switch_core_session_t *session = NULL;
 	struct speed_dial_stat_res_message *button_speed_dial = NULL;
 	struct line_stat_res_message *button_line = NULL;
+	uint32_t line_state;
+
+	switch_channel_t *channel = NULL;
 
 	skinny_check_data_length(request, sizeof(request->data.stimulus)-sizeof(request->data.stimulus.call_id));
 
@@ -1210,15 +1355,23 @@ switch_status_t skinny_handle_stimulus_message(listener_t *listener, skinny_mess
 		call_id = request->data.stimulus.call_id;
 	}
 
+	skinny_log_l(listener, SWITCH_LOG_DEBUG, "Received stimulus message of type (%s)\n",
+		skinny_button2str(request->data.stimulus.instance_type));
+
 	switch(request->data.stimulus.instance_type) {
 		case SKINNY_BUTTON_LAST_NUMBER_REDIAL:
 			skinny_create_incoming_session(listener, &line_instance, &session);
-			skinny_session_process_dest(session, listener, line_instance, "redial", '\0', 0);
+			skinny_session_process_dest(session, listener, line_instance, 
+				empty_null2(listener->ext_redial,listener->profile->ext_redial), '\0', 0);
 			break;
 		case SKINNY_BUTTON_SPEED_DIAL:
 			skinny_speed_dial_get(listener, request->data.stimulus.instance, &button_speed_dial);
+
+			session = skinny_profile_find_session(listener->profile, listener, &line_instance, 0);
 			if(strlen(button_speed_dial->line) > 0) {
-				skinny_create_incoming_session(listener, &line_instance, &session);
+				if (!session) {
+					skinny_create_incoming_session(listener, &line_instance, &session);
+				}
 				skinny_session_process_dest(session, listener, line_instance, button_speed_dial->line, '\0', 0);
 			}
 			break;
@@ -1238,7 +1391,8 @@ switch_status_t skinny_handle_stimulus_message(listener_t *listener, skinny_mess
 			break;
 		case SKINNY_BUTTON_VOICEMAIL:
 			skinny_create_incoming_session(listener, &line_instance, &session);
-			skinny_session_process_dest(session, listener, line_instance, "vmain", '\0', 0);
+			skinny_session_process_dest(session, listener, line_instance, 
+				empty_null2(listener->ext_voicemail, listener->profile->ext_voicemail), '\0', 0);
 			break;
 
 		case SKINNY_BUTTON_LINE:
@@ -1251,7 +1405,27 @@ switch_status_t skinny_handle_stimulus_message(listener_t *listener, skinny_mess
 
 			// If session and line match, answer the call
 			if ( session && line_instance == button_line->number ) {
-				status = skinny_session_answer(session, listener, line_instance);
+				line_state = skinny_line_get_state(listener, line_instance, call_id);
+
+				if(line_state == SKINNY_OFF_HOOK) {
+					channel = switch_core_session_get_channel(session);
+					if (switch_channel_test_flag(channel, CF_HOLD)) {
+						switch_ivr_unhold(session);
+					}
+
+					switch_channel_hangup(channel, SWITCH_CAUSE_NORMAL_CLEARING);
+				} 
+				else {
+					status = skinny_session_answer(session, listener, line_instance);
+				}
+			}
+			else {
+				if(skinny_check_data_length_soft(request, sizeof(request->data.soft_key_event))) {
+					line_instance = request->data.soft_key_event.line_instance;
+				}
+
+				skinny_create_incoming_session(listener, &line_instance, &session);
+				skinny_session_process_dest(session, listener, line_instance, NULL, '\0', 0);
 			}
 			break;
 
@@ -1272,6 +1446,7 @@ switch_status_t skinny_handle_off_hook_message(listener_t *listener, skinny_mess
 	uint32_t call_id = 0;
 	switch_core_session_t *session = NULL;
 	private_t *tech_pvt = NULL;
+	uint32_t line_state;
 
 	if(skinny_check_data_length_soft(request, sizeof(request->data.off_hook))) {
 		if (request->data.off_hook.line_instance > 0) {
@@ -1282,7 +1457,9 @@ switch_status_t skinny_handle_off_hook_message(listener_t *listener, skinny_mess
 
 	session = skinny_profile_find_session(listener->profile, listener, &line_instance, call_id);
 
-	if(session) { /*answering a call */
+	line_state = skinny_line_get_state(listener, line_instance, call_id);
+
+	if(session && line_state != SKINNY_OFF_HOOK ) { /*answering a call */
 		skinny_session_answer(session, listener, line_instance);
 	} else { /* start a new call */
 		skinny_create_incoming_session(listener, &line_instance, &session);
@@ -1341,33 +1518,28 @@ switch_status_t skinny_handle_forward_stat_req_message(listener_t *listener, ski
 
 	skinny_check_data_length(request, sizeof(request->data.forward_stat_req));
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.forward_stat));
-	message->type = FORWARD_STAT_MESSAGE;
-	message->length = 4 + sizeof(message->data.forward_stat);
+	skinny_create_message(message, FORWARD_STAT_MESSAGE, forward_stat);
 
 	message->data.forward_stat.line_instance = request->data.forward_stat_req.line_instance;
 
-	skinny_send_reply(listener, message);
+	skinny_log_l(listener, SWITCH_LOG_DEBUG, "Handle Forward Stat Req Message with Line Instance (%d)\n", 
+		request->data.forward_stat_req.line_instance);
+	skinny_send_reply_quiet(listener, message, SWITCH_TRUE);
 
 	return SWITCH_STATUS_SUCCESS;
 }
 
 switch_status_t skinny_handle_speed_dial_stat_request(listener_t *listener, skinny_message_t *request)
 {
-	skinny_message_t *message;
 	struct speed_dial_stat_res_message *button = NULL;
 
 	skinny_check_data_length(request, sizeof(request->data.speed_dial_req));
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.speed_dial_res));
-	message->type = SPEED_DIAL_STAT_RES_MESSAGE;
-	message->length = 4 + sizeof(message->data.speed_dial_res);
+	skinny_log_l(listener, SWITCH_LOG_DEBUG, "Handle Speed Dial Stat Request for Number (%d)\n", request->data.speed_dial_req.number);
 
 	skinny_speed_dial_get(listener, request->data.speed_dial_req.number, &button);
 
-	memcpy(&message->data.speed_dial_res, button, sizeof(struct speed_dial_stat_res_message));
-
-	skinny_send_reply(listener, message);
+	send_speed_dial_stat_res(listener, request->data.speed_dial_req.number, button->line, button->label);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -1379,15 +1551,13 @@ switch_status_t skinny_handle_line_stat_request(listener_t *listener, skinny_mes
 
 	skinny_check_data_length(request, sizeof(request->data.line_req));
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.line_res));
-	message->type = LINE_STAT_RES_MESSAGE;
-	message->length = 4 + sizeof(message->data.line_res);
+	skinny_create_message(message, LINE_STAT_RES_MESSAGE, line_res);
 
 	skinny_line_get(listener, request->data.line_req.number, &button);
 
 	memcpy(&message->data.line_res, button, sizeof(struct line_stat_res_message));
 
-	skinny_send_reply(listener, message);
+	skinny_send_reply(listener, message, SWITCH_TRUE);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -1425,9 +1595,7 @@ switch_status_t skinny_handle_config_stat_request(listener_t *listener, skinny_m
 
 	profile = listener->profile;
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.config_res));
-	message->type = CONFIG_STAT_RES_MESSAGE;
-	message->length = 4 + sizeof(message->data.config_res);
+	skinny_create_message(message, CONFIG_STAT_RES_MESSAGE, config_res);
 
 	if ((sql = switch_mprintf(
 					"SELECT name, user_id, instance, '' AS user_name, '' AS server_name, "
@@ -1444,7 +1612,7 @@ switch_status_t skinny_handle_config_stat_request(listener_t *listener, skinny_m
 		skinny_execute_sql_callback(profile, profile->sql_mutex, sql, skinny_config_stat_res_callback, message);
 		switch_safe_free(sql);
 	}
-	skinny_send_reply(listener, message);
+	skinny_send_reply(listener, message, SWITCH_TRUE);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -1495,9 +1663,7 @@ switch_status_t skinny_handle_button_template_request(listener_t *listener, skin
 
 	profile = listener->profile;
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.button_template));
-	message->type = BUTTON_TEMPLATE_RES_MESSAGE;
-	message->length = 4 + sizeof(message->data.button_template);
+	skinny_create_message(message, BUTTON_TEMPLATE_RES_MESSAGE, button_template);
 
 	message->data.button_template.button_offset = 0;
 	message->data.button_template.button_count = 0;
@@ -1507,11 +1673,10 @@ switch_status_t skinny_handle_button_template_request(listener_t *listener, skin
 
 	/* Add buttons */
 	if ((sql = switch_mprintf(
-					"SELECT device_name, device_instance, position, MIN(type, %d) AS type "
+					"SELECT device_name, device_instance, position, type "
 					"FROM skinny_buttons "
 					"WHERE device_name='%s' AND device_instance=%d "
 					"ORDER BY position",
-					SKINNY_BUTTON_UNDEFINED,
 					listener->device_name, listener->device_instance
 				 ))) {
 		skinny_execute_sql_callback(profile, profile->sql_mutex, sql, skinny_handle_button_template_request_callback, &helper);
@@ -1541,9 +1706,7 @@ switch_status_t skinny_handle_button_template_request(listener_t *listener, skin
 		}
 	}
 
-
-
-	return skinny_send_reply(listener, message);;
+	return skinny_send_reply(listener, message, SWITCH_TRUE);
 }
 
 switch_status_t skinny_handle_version_request(listener_t *listener, skinny_message_t *request)
@@ -1604,7 +1767,11 @@ switch_status_t skinny_handle_capabilities_response(listener_t *listener, skinny
 	}
 	i = 0;
 	pos = 0;
-	codec_string = switch_core_alloc(listener->pool, string_len+1);
+	codec_string = calloc(string_len+1,1);
+	if ( !codec_string ) {
+		skinny_log_l_msg(listener, SWITCH_LOG_ERROR, "Unable to allocate memory for codec string.\n");
+		return SWITCH_STATUS_FALSE;
+	}
 	for (string_pos = 0; string_pos < string_len; string_pos++) {
 		char *codec = codec_order[i];
 		switch_assert(i < n);
@@ -1618,15 +1785,15 @@ switch_status_t skinny_handle_capabilities_response(listener_t *listener, skinny
 	}
 	codec_string[string_len] = '\0';
 	if ((sql = switch_mprintf(
-					"UPDATE skinny_devices SET codec_string='%s' WHERE name='%s'",
+					"UPDATE skinny_devices SET codec_string='%q' WHERE name='%s'",
 					codec_string,
 					listener->device_name
 				 ))) {
 		skinny_execute_sql(profile, sql, profile->sql_mutex);
 		switch_safe_free(sql);
 	}
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG,
-			"Codecs %s supported.\n", codec_string);
+	skinny_log_l(listener, SWITCH_LOG_DEBUG, "Codecs %s supported.\n", codec_string);
+	switch_safe_free(codec_string);
 	return SWITCH_STATUS_SUCCESS;
 }
 
@@ -1636,10 +1803,10 @@ switch_status_t skinny_handle_alarm(listener_t *listener, skinny_message_t *requ
 
 	skinny_check_data_length(request, sizeof(request->data.alarm));
 
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
-			"Received alarm: Severity=%d, DisplayMessage=%s, Param1=%d, Param2=%d.\n",
-			request->data.alarm.alarm_severity, request->data.alarm.display_message,
-			request->data.alarm.alarm_param1, request->data.alarm.alarm_param2);
+	skinny_log_l(listener, SWITCH_LOG_DEBUG, "Received alarm: Severity=%d, DisplayMessage=%s, Param1=%d, Param2=%d.\n",
+		request->data.alarm.alarm_severity, request->data.alarm.display_message,
+		request->data.alarm.alarm_param1, request->data.alarm.alarm_param2);
+
 	/* skinny::alarm event */
 	skinny_device_event(listener, &event, SWITCH_EVENT_CUSTOM, SKINNY_EVENT_ALARM);
 	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Skinny-Alarm-Severity", "%d", request->data.alarm.alarm_severity);
@@ -1672,7 +1839,7 @@ switch_status_t skinny_handle_open_receive_channel_ack_message(listener_t *liste
 
 		/* Codec */
 		tech_pvt->iananame = "PCMU"; /* TODO */
-		tech_pvt->codec_ms = 10; /* TODO */
+		tech_pvt->codec_ms = SKINNY_PTIME; /* TODO */
 		tech_pvt->rm_rate = 8000; /* TODO */
 		tech_pvt->rm_fmtp = NULL; /* TODO */
 		tech_pvt->agreed_pt = (switch_payload_t) 0; /* TODO */
@@ -1721,7 +1888,7 @@ switch_status_t skinny_handle_open_receive_channel_ack_message(listener_t *liste
 				tech_pvt->party_id, /* uint32_t pass_thru_party_id, */
 				addr.s_addr, /* uint32_t remote_ip, */
 				tech_pvt->local_sdp_audio_port, /* uint32_t remote_port, */
-				20, /* uint32_t ms_per_packet, */
+				SKINNY_PTIME, /* uint32_t ms_per_packet, */
 				SKINNY_CODEC_ULAW_64K, /* uint32_t payload_capacity, */
 				184, /* uint32_t precedence, */
 				0, /* uint32_t silence_suppression, */
@@ -1738,9 +1905,8 @@ switch_status_t skinny_handle_open_receive_channel_ack_message(listener_t *liste
 			send_set_lamp(listener, SKINNY_BUTTON_LINE, line_instance, SKINNY_LAMP_ON);
 		}
 	} else {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
-				"Unable to find session for device %s:%d (call id=%d).\n", 
-				listener->device_name, listener->device_instance, request->data.open_receive_channel_ack.pass_thru_party_id);
+		skinny_log_l(listener, SWITCH_LOG_WARNING, "Unable to find session for call id=%d.\n", 
+				request->data.open_receive_channel_ack.pass_thru_party_id);
 	}
 end:
 	if(session) {
@@ -1755,15 +1921,17 @@ switch_status_t skinny_handle_soft_key_set_request(listener_t *listener, skinny_
 
 	if (listener->soft_key_set_set) {
 		message = switch_core_hash_find(listener->profile->soft_key_set_sets_hash, listener->soft_key_set_set);
+		skinny_log_l(listener, SWITCH_LOG_DEBUG, "Handle Soft Key Set Request with Set (%s)\n", listener->soft_key_set_set);
 	}
 	if (!message) {
 		message = switch_core_hash_find(listener->profile->soft_key_set_sets_hash, "default");
+		skinny_log_l(listener, SWITCH_LOG_DEBUG, "Handle Soft Key Set Request with Set (%s)\n", "default");
 	}
 	if (message) {
-		skinny_send_reply(listener, message);
+		skinny_send_reply_quiet(listener, message, SWITCH_FALSE);
 	} else {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR,
-				"Profile %s doesn't have a default <soft-key-set-set>.\n", listener->profile->name);
+		skinny_log_l(listener, SWITCH_LOG_ERROR, "Profile %s doesn't have a default <soft-key-set-set>.\n", 
+			listener->profile->name);
 	}
 
 	/* Init the states */
@@ -1787,10 +1955,14 @@ switch_status_t skinny_handle_soft_key_event_message(listener_t *listener, skinn
 		call_id = request->data.soft_key_event.call_id;
 	}
 
+	skinny_log_l(listener, SWITCH_LOG_DEBUG, "Soft Key Event (%s) with Line Instance (%d), Call ID (%d)\n",
+		skinny_soft_key_event2str(request->data.soft_key_event.event), line_instance, call_id);
+
 	switch(request->data.soft_key_event.event) {
 		case SOFTKEY_REDIAL:
 			status = skinny_create_incoming_session(listener, &line_instance, &session);
-			skinny_session_process_dest(session, listener, line_instance, "redial", '\0', 0);
+			skinny_session_process_dest(session, listener, line_instance, 
+				empty_null2(listener->ext_redial,listener->profile->ext_redial), '\0', 0);
 			break;
 		case SOFTKEY_NEWCALL:
 			status = skinny_create_incoming_session(listener, &line_instance, &session);
@@ -1819,6 +1991,9 @@ switch_status_t skinny_handle_soft_key_event_message(listener_t *listener, skinn
 			session = skinny_profile_find_session(listener->profile, listener, &line_instance, call_id);
 			if(session) {
 				channel = switch_core_session_get_channel(session);
+				if (switch_channel_test_flag(channel, CF_HOLD)) {
+					switch_ivr_unhold(session);
+				}
 				switch_channel_hangup(channel, SWITCH_CAUSE_NORMAL_CLEARING);
 			}
 			break;
@@ -1833,6 +2008,33 @@ switch_status_t skinny_handle_soft_key_event_message(listener_t *listener, skinn
 			if(session) {
 				status = skinny_session_answer(session, listener, line_instance);
 			}
+			break;
+		case SOFTKEY_IDIVERT:
+			session = skinny_profile_find_session(listener->profile, listener, &line_instance, call_id);
+			if(session) {
+				switch_channel_t *channel = NULL;
+				channel = switch_core_session_get_channel(session);
+
+				if (channel) {
+					switch_channel_hangup(channel, SWITCH_CAUSE_NO_ANSWER);
+				}
+			}
+			break;
+		case SOFTKEY_MEETME:
+			skinny_create_incoming_session(listener, &line_instance, &session);
+			skinny_session_process_dest(session, listener, line_instance, 
+				empty_null2(listener->ext_meetme, listener->profile->ext_meetme), '\0', 0);
+			break;
+		case SOFTKEY_CALLPICKUP:
+		case SOFTKEY_GRPCALLPICKUP:
+			skinny_create_incoming_session(listener, &line_instance, &session);
+			skinny_session_process_dest(session, listener, line_instance, 
+				empty_null2(listener->ext_pickup, listener->profile->ext_pickup), '\0', 0);
+			break;
+		case SOFTKEY_CFWDALL:
+			skinny_create_incoming_session(listener, &line_instance, &session);
+			skinny_session_process_dest(session, listener, line_instance, 
+				empty_null2(listener->ext_cfwdall, listener->profile->ext_cfwdall), '\0', 0);
 			break;
 		default:
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
@@ -1855,38 +2057,48 @@ switch_status_t skinny_handle_unregister(listener_t *listener, skinny_message_t 
 	skinny_device_event(listener, &event, SWITCH_EVENT_CUSTOM, SKINNY_EVENT_UNREGISTER);
 	switch_event_fire(&event);
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.unregister_ack));
-	message->type = UNREGISTER_ACK_MESSAGE;
-	message->length = 4 + sizeof(message->data.unregister_ack);
+	skinny_create_message(message, UNREGISTER_ACK_MESSAGE, unregister_ack);
+
 	message->data.unregister_ack.unregister_status = 0; /* OK */
-	skinny_send_reply(listener, message);
+
+	skinny_log_l(listener, SWITCH_LOG_DEBUG, "Handle Unregister with Status (%d)\n", message->data.unregister_ack.unregister_status);
+	
+	skinny_send_reply_quiet(listener, message, SWITCH_TRUE);
 
 	/* Close socket */
 	switch_clear_flag_locked(listener, LFLAG_RUNNING);
+
+	/* Clear this device from database and any active lines/etc. */
+	skinny_clean_listener_from_db(listener);
 
 	return SWITCH_STATUS_SUCCESS;
 }
 
 switch_status_t skinny_handle_soft_key_template_request(listener_t *listener, skinny_message_t *request)
 {
+	size_t i;
 	skinny_message_t *message;
 
 	switch_assert(listener->profile);
 	switch_assert(listener->device_name);
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.soft_key_template));
-	message->type = SOFT_KEY_TEMPLATE_RES_MESSAGE;
-	message->length = 4 + sizeof(message->data.soft_key_template);
+	skinny_create_message(message, SOFT_KEY_TEMPLATE_RES_MESSAGE, soft_key_template);
 
 	message->data.soft_key_template.soft_key_offset = 0;
 	message->data.soft_key_template.soft_key_count = 21;
 	message->data.soft_key_template.total_soft_key_count = 21;
 
-	memcpy(message->data.soft_key_template.soft_key,
-			soft_key_template_default,
-			sizeof(soft_key_template_default));
+	for (i=0; i < sizeof(soft_key_template_default_textids)/4; i++) {
+		char *label = skinny_textid2raw(soft_key_template_default_textids[i]);
+		strncpy(message->data.soft_key_template.soft_key[i].soft_key_label, label, sizeof(message->data.soft_key_template.soft_key[i].soft_key_label));
+		switch_safe_free(label);
 
-	skinny_send_reply(listener, message);
+		message->data.soft_key_template.soft_key[i].soft_key_event = soft_key_template_default_events[i];
+	}
+		
+	skinny_log_l_msg(listener, SWITCH_LOG_DEBUG, "Handle Soft Key Template Request with Default Template\n");
+
+	skinny_send_reply_quiet(listener, message, SWITCH_TRUE);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -1898,7 +2110,7 @@ switch_status_t skinny_headset_status_message(listener_t *listener, skinny_messa
 	skinny_check_data_length(request, sizeof(request->data.headset_status));
 
 	if ((sql = switch_mprintf(
-					"UPDATE skinny_devices SET headset=%d WHERE name='%s' and instance=%d",
+					"UPDATE skinny_devices SET headset=%d WHERE name='%q' and instance=%d",
 					(request->data.headset_status.mode==1) ? SKINNY_ACCESSORY_STATE_OFFHOOK : SKINNY_ACCESSORY_STATE_ONHOOK,
 					listener->device_name,
 					listener->device_instance
@@ -1907,12 +2119,17 @@ switch_status_t skinny_headset_status_message(listener_t *listener, skinny_messa
 		switch_safe_free(sql);
 	}
 
+	skinny_log_l(listener, SWITCH_LOG_DEBUG, "Update headset accessory status (%s)\n", 
+		skinny_accessory_state2str(request->data.headset_status.mode));
+
 	return SWITCH_STATUS_SUCCESS;
 }
 
 switch_status_t skinny_handle_register_available_lines_message(listener_t *listener, skinny_message_t *request)
 {
 	skinny_check_data_length(request, sizeof(request->data.reg_lines));
+
+	skinny_log_l_msg(listener, SWITCH_LOG_DEBUG, "Handle Register Available Lines\n");
 
 	/* Do nothing */
 	return SWITCH_STATUS_SUCCESS;
@@ -1934,12 +2151,16 @@ switch_status_t skinny_handle_data_message(listener_t *listener, skinny_message_
 	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Skinny-DeviceToUser-Call-Id", "%d", request->data.data.call_id);
 	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Skinny-DeviceToUser-Transaction-Id", "%d", request->data.data.transaction_id);
 	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Skinny-DeviceToUser-Data-Length", "%d", request->data.data.data_length);
-	/* Ensure that the body is null-terminated */
+	
 	tmp = malloc(request->data.data.data_length + 1);
 	memcpy(tmp, request->data.data.data, request->data.data.data_length);
+
+	/* Ensure that the body is null-terminated */
 	tmp[request->data.data.data_length] = '\0';
 	switch_event_add_body(event, "%s", tmp);
+
 	switch_safe_free(tmp);
+
 	switch_event_fire(&event);
 
 	return SWITCH_STATUS_SUCCESS;
@@ -1952,15 +2173,13 @@ switch_status_t skinny_handle_service_url_stat_request(listener_t *listener, ski
 
 	skinny_check_data_length(request, sizeof(request->data.service_url_req));
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.service_url_res));
-	message->type = SERVICE_URL_STAT_RES_MESSAGE;
-	message->length = 4 + sizeof(message->data.service_url_res);
+	skinny_create_message(message, SERVICE_URL_STAT_RES_MESSAGE, service_url_res);
 
 	skinny_service_url_get(listener, request->data.service_url_req.service_url_index, &button);
 
 	memcpy(&message->data.service_url_res, button, sizeof(struct service_url_stat_res_message));
 
-	skinny_send_reply(listener, message);
+	skinny_send_reply(listener, message, SWITCH_TRUE);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -1972,15 +2191,13 @@ switch_status_t skinny_handle_feature_stat_request(listener_t *listener, skinny_
 
 	skinny_check_data_length(request, sizeof(request->data.feature_req));
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.feature_res));
-	message->type = FEATURE_STAT_RES_MESSAGE;
-	message->length = 4 + sizeof(message->data.feature_res);
+	skinny_create_message(message, FEATURE_STAT_RES_MESSAGE, feature_res);
 
 	skinny_feature_get(listener, request->data.feature_req.feature_index, &button);
 
 	memcpy(&message->data.feature_res, button, sizeof(struct feature_stat_res_message));
 
-	skinny_send_reply(listener, message);
+	skinny_send_reply(listener, message, SWITCH_TRUE);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -2006,32 +2223,46 @@ switch_status_t skinny_handle_extended_data_message(listener_t *listener, skinny
 	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Skinny-DeviceToUser-Conference-Id", "%d", request->data.extended_data.conference_id);
 	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Skinny-DeviceToUser-App-Instance-Id", "%d", request->data.extended_data.app_instance_id);
 	switch_event_add_header(event, SWITCH_STACK_BOTTOM, "Skinny-DeviceToUser-Routing-Id", "%d", request->data.extended_data.routing_id);
-	/* Ensure that the body is null-terminated */
+
 	tmp = malloc(request->data.data.data_length + 1);
 	memcpy(tmp, request->data.data.data, request->data.data.data_length);
+
+	/* Ensure that the body is null-terminated */
 	tmp[request->data.data.data_length] = '\0';
 	switch_event_add_body(event, "%s", tmp);
+
 	switch_safe_free(tmp);
 	switch_event_fire(&event);
 
 	return SWITCH_STATUS_SUCCESS;
 }
+
 switch_status_t skinny_handle_dialed_phone_book_message(listener_t *listener, skinny_message_t *request)
 {
 	skinny_message_t *message;
 
 	skinny_check_data_length(request, sizeof(request->data.dialed_phone_book));
 
-	message = switch_core_alloc(listener->pool, 12+sizeof(message->data.dialed_phone_book_ack));
-	message->type = DIALED_PHONE_BOOK_ACK_MESSAGE;
-	message->length = 4 + sizeof(message->data.dialed_phone_book_ack);
+	skinny_create_message(message, DIALED_PHONE_BOOK_ACK_MESSAGE, dialed_phone_book_ack);
+
 	message->data.dialed_phone_book_ack.number_index = request->data.dialed_phone_book.number_index;
 	message->data.dialed_phone_book_ack.line_instance = request->data.dialed_phone_book.line_instance;
 	message->data.dialed_phone_book_ack.unknown = request->data.dialed_phone_book.unknown;
 	message->data.dialed_phone_book_ack.unknown2 = 0;
 
+#if 0
+	/* Not sure why this isn't being sent at this point, need to investigate */
+	skinny_log_l_ffl(listener, file, func, line, SWITCH_LOG_DEBUG,
+		"Sending Handle Dialed Phone Book Ack Message with Number Index (%d), Line Instance (%d)\n",
+		request->data.dialed_phone_book.number_index, request->data.dialed_phone_book.line_instance);
+
+	return skinny_send_reply_quiet(listener, message, SWITCH_TRUE);
+#else
+	switch_safe_free(message);
 	return SWITCH_STATUS_SUCCESS;
+#endif
 }
+
 switch_status_t skinny_handle_accessory_status_message(listener_t *listener, skinny_message_t *request)
 {
 	char *sql;
@@ -2041,7 +2272,7 @@ switch_status_t skinny_handle_accessory_status_message(listener_t *listener, ski
 	switch(request->data.accessory_status.accessory_id) {
 		case SKINNY_ACCESSORY_HEADSET:
 			if ((sql = switch_mprintf(
-							"UPDATE skinny_devices SET headset=%d WHERE name='%s' and instance=%d",
+							"UPDATE skinny_devices SET headset=%d WHERE name='%q' and instance=%d",
 							request->data.accessory_status.accessory_status,
 							listener->device_name,
 							listener->device_instance
@@ -2052,7 +2283,7 @@ switch_status_t skinny_handle_accessory_status_message(listener_t *listener, ski
 			break;
 		case SKINNY_ACCESSORY_HANDSET:
 			if ((sql = switch_mprintf(
-							"UPDATE skinny_devices SET handset=%d WHERE name='%s' and instance=%d",
+							"UPDATE skinny_devices SET handset=%d WHERE name='%q' and instance=%d",
 							request->data.accessory_status.accessory_status,
 							listener->device_name,
 							listener->device_instance
@@ -2063,7 +2294,7 @@ switch_status_t skinny_handle_accessory_status_message(listener_t *listener, ski
 			break;
 		case SKINNY_ACCESSORY_SPEAKER:
 			if ((sql = switch_mprintf(
-							"UPDATE skinny_devices SET speaker=%d WHERE name='%s' and instance=%d",
+							"UPDATE skinny_devices SET speaker=%d WHERE name='%q' and instance=%d",
 							request->data.accessory_status.accessory_status,
 							listener->device_name,
 							listener->device_instance
@@ -2077,13 +2308,85 @@ switch_status_t skinny_handle_accessory_status_message(listener_t *listener, ski
 	return SWITCH_STATUS_SUCCESS;
 }
 
+switch_status_t skinny_handle_updatecapabilities(listener_t *listener, skinny_message_t *request)
+{
+	char *sql;
+	skinny_profile_t *profile;
+
+	uint32_t i = 0;
+	uint32_t n = 0;
+	char *codec_order[SWITCH_MAX_CODECS];
+	char *codec_string;
+
+	size_t string_len, string_pos, pos;
+
+	switch_assert(listener->profile);
+	switch_assert(listener->device_name);
+
+	profile = listener->profile;
+
+	skinny_check_data_length(request, sizeof(request->data.upd_cap.audio_cap_count));
+
+	n = request->data.upd_cap.audio_cap_count;
+	if (n > SWITCH_MAX_CODECS) {
+		n = SWITCH_MAX_CODECS;
+	}
+	string_len = -1;
+
+	skinny_check_data_length(request, sizeof(request->data.upd_cap.audio_cap_count) + n * sizeof(request->data.upd_cap.audioCaps[0]));
+
+	for (i = 0; i < n; i++) {
+		char *codec = skinny_codec2string(request->data.upd_cap.audioCaps[i].payload_capability);
+		codec_order[i] = codec;
+		string_len += strlen(codec)+1;
+	}
+	i = 0;
+	pos = 0;
+	codec_string = switch_core_alloc(listener->pool, string_len+1);
+	for (string_pos = 0; string_pos < string_len; string_pos++) {
+		char *codec = codec_order[i];
+		switch_assert(i < n);
+		if(pos == strlen(codec)) {
+			codec_string[string_pos] = ',';
+			i++;
+			pos = 0;
+		} else {
+			codec_string[string_pos] = codec[pos++];
+		}
+	}
+	codec_string[string_len] = '\0';
+	if ((sql = switch_mprintf(
+					"UPDATE skinny_devices SET codec_string='%q' WHERE name='%q'",
+					codec_string,
+					listener->device_name
+				 ))) {
+		skinny_execute_sql(profile, sql, profile->sql_mutex);
+		switch_safe_free(sql);
+	}
+	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG,
+			"Codecs %s supported.\n", codec_string);
+	return SWITCH_STATUS_SUCCESS;
+}
+
+
+switch_status_t skinny_handle_server_req_message(listener_t *listener, skinny_message_t *request)
+{
+	skinny_profile_t *profile;
+
+	profile = listener->profile;
+
+	skinny_log_l(listener, SWITCH_LOG_INFO, "Received Server Request Message (length=%d).\n", request->length);
+
+	send_srvreq_response(listener, profile->ip, profile->port);
+	return SWITCH_STATUS_SUCCESS;
+}
+
 switch_status_t skinny_handle_xml_alarm(listener_t *listener, skinny_message_t *request)
 {
 	switch_event_t *event = NULL;
 	char *tmp = NULL;
 
-	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_INFO,
-			"Received XML alarm.\n");
+	skinny_log_l(listener, SWITCH_LOG_INFO, "Received XML alarm (length=%d).\n", request->length);
 	/* skinny::xml_alarm event */
 	skinny_device_event(listener, &event, SWITCH_EVENT_CUSTOM, SKINNY_EVENT_XML_ALARM);
 	/* Ensure that the body is null-terminated */
@@ -2100,11 +2403,10 @@ switch_status_t skinny_handle_xml_alarm(listener_t *listener, skinny_message_t *
 switch_status_t skinny_handle_request(listener_t *listener, skinny_message_t *request)
 {
 	if (listener->profile->debug >= 10 || request->type != KEEP_ALIVE_MESSAGE) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG,
-				"Received %s (type=%x,length=%d) from %s:%d.\n", skinny_message_type2str(request->type), request->type, request->length,
-				listener->device_name, listener->device_instance);
+		skinny_log_l(listener, SWITCH_LOG_DEBUG, "Received %s (type=%x,length=%d).\n",
+			skinny_message_type2str(request->type), request->type, request->length);
 	}
-	if(zstr(listener->device_name) && request->type != REGISTER_MESSAGE && request->type != ALARM_MESSAGE && request->type != XML_ALARM_MESSAGE) {
+	if(zstr(listener->device_name) && request->type != REGISTER_MESSAGE && request->type != ALARM_MESSAGE && request->type != XML_ALARM_MESSAGE && request->type != KEEP_ALIVE_MESSAGE) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
 				"Device should send a register message first. Received %s (type=%x,length=%d).\n", skinny_message_type2str(request->type), request->type, request->length);
 		return SWITCH_STATUS_FALSE;
@@ -2176,6 +2478,10 @@ switch_status_t skinny_handle_request(listener_t *listener, skinny_message_t *re
 			return skinny_handle_accessory_status_message(listener, request);
 		case XML_ALARM_MESSAGE:
 			return skinny_handle_xml_alarm(listener, request);
+		case UPDATE_CAPABILITIES_MESSAGE:
+			return skinny_handle_updatecapabilities(listener, request);
+		case SERVER_REQ_MESSAGE:
+			return skinny_handle_server_req_message(listener, request);         
 		default:
 			switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING,
 					"Unhandled %s (type=%x,length=%d).\n", skinny_message_type2str(request->type), request->type, request->length);
@@ -2191,6 +2497,6 @@ switch_status_t skinny_handle_request(listener_t *listener, skinny_message_t *re
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */
 

@@ -60,52 +60,43 @@ static struct {
 
 mpg123_handle *our_mpg123_new(const char *decoder, int *error)
 {
-	mpg123_handle *mh;
 	const char *arch = "auto";
+	const char *err = NULL;
+	mpg123_handle *mh;
 	int x64 = 0;
 	int rc = 0;
-	const char *err = NULL;
 
-	if (*globals.decoder || globals.outscale || globals.vol) {
-		if (*globals.decoder) {
-			arch = globals.decoder;
-		}
-		if ((mh = mpg123_new(arch, &rc))) {
-			if (rc) {
-				err = mpg123_plain_strerror(rc);
-			}
-			if (globals.outscale) {
-				mpg123_param(mh, MPG123_OUTSCALE, globals.outscale, 0);
-			}
-			if (globals.vol) {
-				mpg123_volume(mh, globals.vol);
-			}
-		}
+	if (*globals.decoder) {
+		arch = globals.decoder;
+	}
+#ifndef WIN32
+	else if (sizeof(void *) == 4) {
+		arch = "i586";
 	} else {
-
-#ifdef WIN32
-		x64++;
+		x64 = 1;
+	}
 #else
-		if (sizeof(void *) == 4) {
-			arch = "i586";
-		} else {
-			x64++;
-		}
+	x64 = 1;
 #endif
+	mh = mpg123_new(arch, &rc);
+	if (!mh) {
+		err = mpg123_plain_strerror(rc);
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error allocating mpg123 handle! %s\n", switch_str_nil(err));
+		return NULL;
+	}
 
-		if ((mh = mpg123_new(arch, &rc))) {
-			if (rc) {
-				err = mpg123_plain_strerror(rc);
-			}
-			if (x64) {
-				mpg123_param(mh, MPG123_OUTSCALE, 8192, 0);
-			}
+	/* NOTE: keeping the globals.decoder check here for behaviour backwards compat - stkn */
+	if (*globals.decoder || globals.outscale || globals.vol) {
+		if (globals.outscale) {
+			mpg123_param(mh, MPG123_OUTSCALE, globals.outscale, 0);
 		}
+		if (globals.vol) {
+			mpg123_volume(mh, globals.vol);
+		}
+	} else if (x64) {
+		mpg123_param(mh, MPG123_OUTSCALE, 8192, 0);
 	}
 
-	if (err) {
-		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error allocating mpg123 handle! %s\n", err);
-	}
 	return mh;
 }
 
@@ -208,6 +199,7 @@ static inline void free_context(shout_context_t *context)
 				unsigned char mp3buffer[8192];
 				int len;
 				int16_t blank[2048] = { 0 }, *r = NULL;
+				int framesize;
 
 				if (context->channels == 2) {
 					r = blank;
@@ -222,13 +214,16 @@ static inline void free_context(shout_context_t *context)
 					}
 				}
 
-				while ((len = lame_encode_flush(context->gfp, mp3buffer, sizeof(mp3buffer))) > 0) {
-					ret = shout_send(context->shout, mp3buffer, len);
+				framesize = lame_get_framesize(context->gfp);
+				if ( framesize ) {
+					while ((len = lame_encode_flush(context->gfp, mp3buffer, sizeof(mp3buffer))) > 0) {
+						ret = shout_send(context->shout, mp3buffer, len);
 
-					if (ret != SHOUTERR_SUCCESS) {
-						break;
-					} else {
-						shout_sync(context->shout);
+						if (ret != SHOUTERR_SUCCESS) {
+							break;
+						} else {
+							shout_sync(context->shout);
+						}
 					}
 				}
 			}
@@ -878,7 +873,7 @@ static switch_status_t shout_file_close(switch_file_handle_t *handle)
 static switch_status_t shout_file_seek(switch_file_handle_t *handle, unsigned int *cur_sample, int64_t samples, int whence)
 {
 	shout_context_t *context = handle->private_info;
-
+	
 	if (handle->handler || switch_test_flag(handle, SWITCH_FILE_FLAG_WRITE)) {
 		return SWITCH_STATUS_FALSE;
 	} else {
@@ -889,7 +884,12 @@ static switch_status_t shout_file_seek(switch_file_handle_t *handle, unsigned in
 		switch_buffer_zero(context->audio_buffer);
 		*cur_sample = mpg123_seek(context->mh, (off_t) samples, whence);
 
-		return *cur_sample >= 0 ? SWITCH_STATUS_SUCCESS : SWITCH_STATUS_FALSE;
+		if (*cur_sample >= 0) {
+			handle->pos = *cur_sample;
+			return SWITCH_STATUS_SUCCESS;
+		}
+
+		return SWITCH_STATUS_FALSE;
 	}
 }
 
@@ -1063,8 +1063,8 @@ static switch_status_t shout_file_set_string(switch_file_handle_t *handle, switc
 			id3tag_set_year(context->gfp, string);
 			break;
 		case SWITCH_AUDIO_COL_STR_SOFTWARE:
-			break;
 			id3tag_set_album(context->gfp, string);
+			break;
 		case SWITCH_AUDIO_COL_STR_COPYRIGHT:
 			id3tag_set_genre(context->gfp, string);
 			break;
@@ -1583,5 +1583,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_shout_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

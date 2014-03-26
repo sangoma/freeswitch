@@ -248,6 +248,12 @@
     <ClCompile Include="..\..\third_party\bgaes\sha2.c">
       <Filter>bgaes</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\zrtp_crypto_ec.c">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\zrtp_crypto_ecdh.c">
+      <Filter>src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\ChangeLog" />

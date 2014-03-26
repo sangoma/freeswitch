@@ -24,10 +24,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#if defined(HAVE_CONFIG_H)
-#include "config.h"
-#endif
-
 #include <inttypes.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -468,7 +464,7 @@ typedef struct
 static trie_node_t *trie_node_create(void)
 {
     trie_node_t *s;
-    
+
     if ((s = (trie_node_t *) malloc(sizeof(*s))))
     {
         memset(s, 0, sizeof(*s));
@@ -481,7 +477,7 @@ static trie_node_t *trie_node_create(void)
 static trie_t *trie_create(void)
 {
     trie_t *s;
-    
+
     if ((s = (trie_t *) malloc(sizeof(*s))))
     {
         memset(s, 0, sizeof(*s));
@@ -494,7 +490,7 @@ static trie_t *trie_create(void)
 static void trie_recursive_add_node_numbers(trie_node_t *t)
 {
     int index;
- 
+
     if (t)
     {
         if (t->first <= t->last)
@@ -516,7 +512,7 @@ static void trie_recursive_add_node_numbers(trie_node_t *t)
 static void trie_recursive_build_packed_trie(trie_node_t *t)
 {
     int i;
- 
+
     if (t)
     {
         if (t->first <= t->last)
@@ -551,7 +547,7 @@ static void trie_add(trie_t *s, const char *u, size_t len)
     {
         /* The character in u we are processing... */
         index = (unsigned char) u[i];
- 
+
         /* Is there a child node for this character? */
         if (t->child_list[index] == NULL)
         {
@@ -561,7 +557,7 @@ static void trie_add(trie_t *s, const char *u, size_t len)
             if (index > t->last)
                 t->last = index;
         }
- 
+
         /* Move to the new node... and loop */
         t = t->child_list[index];
     }
@@ -612,7 +608,7 @@ int main(int argc, char *argv[])
 {
     trie_t *s;
     int i;
-    
+
     s = trie_create();
 
     for (i = 0;  wordlist[i];  i++)

@@ -5,7 +5,7 @@
  *  Created by Shane Burrell on 4/3/08.
  *  Copyright 2008 Shane Burrell. All rights reserved.
  *
- * Copyright (c) 2007-2012, Anthony Minessale II, Nenad Corbic
+ * Copyright (c) 2007-2014, Anthony Minessale II, Nenad Corbic
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -160,5 +160,5 @@ int m3uac_exec_command(m3uac_connection_t *mcon, int span, int chan, int id, int
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

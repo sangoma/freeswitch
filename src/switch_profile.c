@@ -124,6 +124,8 @@ static int read_cpu_stats(switch_profile_timer_t *p,
 		myerrno = errno;
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "Failed to read CPU statistics file %s: %s\n", procfile, strerror(myerrno));
 		return -1;
+	} else {
+	  statbuff[rc] = '\0';
 	}
 
 	cpustr = strstr(statbuff, "cpu ");
@@ -135,7 +137,7 @@ static int read_cpu_stats(switch_profile_timer_t *p,
 	/* test each of the known formats starting from the bigger one */
 	elements = sscanf(cpustr, CPU_INFO_FORMAT_3, user, nice, system, idle, iowait, irq, softirq, steal, &guest);
 	if (elements == CPU_ELEMENTS_3) {
-		user += guest; /* guest operating system's run in user space */
+		*user += guest; /* guest operating system's run in user space */
 		return 0;
 	}
 

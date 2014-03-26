@@ -31,7 +31,7 @@
  */
 #include <switch.h>
 #define CMD_BUFLEN 1024 * 1000
-#define MAX_QUEUE_LEN 25000
+#define MAX_QUEUE_LEN 100000
 #define MAX_MISSED 500
 SWITCH_MODULE_LOAD_FUNCTION(mod_event_socket_load);
 SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_event_socket_shutdown);
@@ -597,7 +597,9 @@ static void send_disconnect(listener_t *listener, const char *message)
 	} else {
 		switch_snprintf(disco_buf, sizeof(disco_buf), "Content-Type: text/disconnect-notice\nContent-Length: %d\n\n", mlen);
 	}
-	
+
+	if (!listener->sock) return;
+
 	len = strlen(disco_buf);
 	switch_socket_send(listener->sock, disco_buf, &len);
 	if (len > 0) {
@@ -1567,11 +1569,17 @@ static switch_bool_t auth_api_command(listener_t *listener, const char *api_cmd,
 static switch_status_t parse_command(listener_t *listener, switch_event_t **event, char *reply, uint32_t reply_len)
 {
 	switch_status_t status = SWITCH_STATUS_SUCCESS;
-	char *cmd = switch_event_get_header(*event, "command");
+	char *cmd = NULL;
 	char unload_cheat[] = "api bgapi unload mod_event_socket";
 	char reload_cheat[] = "api bgapi reload mod_event_socket";
 
 	*reply = '\0';
+
+	if (!event || !*event || !(cmd = switch_event_get_header(*event, "command"))) {
+		switch_clear_flag_locked(listener, LFLAG_RUNNING);
+		switch_snprintf(reply, reply_len, "-ERR command parse error.");
+		goto done;
+	}
 
 	if (switch_stristr("unload", cmd) && switch_stristr("mod_event_socket", cmd)) {
 		cmd = unload_cheat;
@@ -2911,5 +2919,5 @@ SWITCH_MODULE_RUNTIME_FUNCTION(mod_event_socket_runtime)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

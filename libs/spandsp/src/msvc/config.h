@@ -54,8 +54,8 @@
     #endif
   #endif // VC8+
 
-  // disable the following warnings 
-  #pragma warning(disable:4100) // The formal parameter is not referenced in the body of the function. The unreferenced parameter is ignored. 
+  // disable the following warnings
+  #pragma warning(disable:4100) // The formal parameter is not referenced in the body of the function. The unreferenced parameter is ignored.
   #pragma warning(disable:4200) // Non standard extension C zero sized array
   #pragma warning(disable:4706) // assignment within conditional expression
   #pragma warning(disable:4244) // conversion from 'type1' to 'type2', possible loss of data
@@ -74,7 +74,9 @@
 
   #define _MMX_H_
 
+  #if !((defined(WIN32) || defined(_WIN32)) && (_MSC_VER >= 1800))
   #define cbrtf(value) pow((float)value, (float).333)
+  #endif
 
   #include <malloc.h> // To get alloca
 

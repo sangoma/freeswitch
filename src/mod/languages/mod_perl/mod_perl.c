@@ -339,6 +339,7 @@ SWITCH_STANDARD_API(perl_api_function)
 	po.stream = stream;
 	po.session = session;
 	perl_thread_run(NULL, &po);
+	return SWITCH_STATUS_SUCCESS;
 }
 
 static switch_xml_t perl_fetch(const char *section,
@@ -501,6 +502,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_perl_load)
 	PerlInterpreter *my_perl;
 	char code[1024];
 	switch_api_interface_t *api_interface;
+	switch_chat_application_interface_t *chat_app_interface;
 
 	globals.pool = pool;
 
@@ -521,6 +523,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_perl_load)
 	SWITCH_ADD_APP(app_interface, "perl", NULL, NULL, perl_function, NULL, SAF_SUPPORT_NOMEDIA);
 	SWITCH_ADD_API(api_interface, "perlrun", "run a script", perlrun_api_function, "<script>");
 	SWITCH_ADD_API(api_interface, "perl", "run a script", perl_api_function, "<script>");
+	SWITCH_ADD_CHAT_APP(chat_app_interface, "perl", "execute a perl script", "execute a perl script", perl_chat_function, "<script>", SCAF_NONE);
+
 	/* indicate that the module should continue to be loaded */
 
 	do_config();
@@ -536,5 +540,5 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_perl_load)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

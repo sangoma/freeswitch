@@ -1,4 +1,4 @@
-/* 
+/*
  * FreeSWITCH Modular Media Switching Software Library / Soft-Switch Application
  * Copyright (C) 2005-2012, Anthony Minessale II <anthm@freeswitch.org>
  *
@@ -60,6 +60,10 @@ struct spandsp_globals {
 	short int use_ecm;
 	short int verbose;
 	short int disable_v17;
+	short int enable_colour_fax;
+	short int enable_image_resizing;
+	short int enable_colour_to_bilevel;
+	short int enable_grayscale_to_bilevel;
 	short int enable_t38;
 	short int enable_t38_request;
 	short int enable_t38_insist;
@@ -74,6 +78,7 @@ struct spandsp_globals {
 	int modem_verbose;
 	char *modem_context;
 	char *modem_dialplan;
+	char *modem_directory;
 	switch_hash_t *tones;
 	int tonedebug;
 };
@@ -127,6 +132,7 @@ void mod_spandsp_dsp_shutdown(void);
 
 void mod_spandsp_fax_event_handler(switch_event_t *event);
 void mod_spandsp_fax_process_fax(switch_core_session_t *session, const char *data, mod_spandsp_fax_application_mode_t app_mode);
+void mod_spandsp_fax_stop_fax(switch_core_session_t *session);
 switch_bool_t t38_gateway_start(switch_core_session_t *session, const char *app, const char *data);
 
 switch_status_t spandsp_stop_inband_dtmf_session(switch_core_session_t *session);
@@ -140,7 +146,7 @@ switch_status_t spandsp_fax_detect_session(switch_core_session_t *session,
 														   int hits, const char *app, const char *data, switch_tone_detect_callback_t callback);
 
 switch_status_t spandsp_fax_stop_detect_session(switch_core_session_t *session);
-void spanfax_log_message(void *user_data, int level, const char *msg);
+void mod_spandsp_log_message(void *session, int level, const char *msg);
 switch_status_t load_configuration(switch_bool_t reload);
 void mod_spandsp_indicate_data(switch_core_session_t *session, switch_bool_t self, switch_bool_t on);
 
@@ -160,5 +166,5 @@ switch_status_t spandsp_tdd_send_session(switch_core_session_t *session, const c
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

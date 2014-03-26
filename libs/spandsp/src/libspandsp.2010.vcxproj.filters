@@ -280,6 +280,15 @@
     <ClCompile Include="t42.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="math_fixed.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="alloc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="t43.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="spandsp\adsi.h">
@@ -717,6 +726,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="spandsp\private\image_translate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="spandsp\t43.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="spandsp\private\t43.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

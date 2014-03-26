@@ -32,7 +32,7 @@ static void mycallback(esl_socket_t server_sock, esl_socket_t client_sock, struc
 			if (type && !strcasecmp(type, "text/disconnect-notice")) {
 				const char *dispo = esl_event_get_header(handle.last_event, "content-disposition");
 				esl_log(ESL_LOG_INFO, "Got a disconnection notice dispostion: [%s]\n", dispo ? dispo : "");
-				if (!strcmp(dispo, "linger")) {
+				if (dispo && !strcmp(dispo, "linger")) {
 					done = 1;
 					esl_log(ESL_LOG_INFO, "Waiting 5 seconds for any remaining events.\n");
 					exp = time(NULL) + 5;
@@ -48,7 +48,7 @@ static void mycallback(esl_socket_t server_sock, esl_socket_t client_sock, struc
 int main(void)
 {
 	esl_global_set_default_logger(7);
-	esl_listen_threaded("localhost", 8084, mycallback, 100000);
+	esl_listen_threaded("localhost", 8040, mycallback, 100000);
 	
 	return 0;
 }

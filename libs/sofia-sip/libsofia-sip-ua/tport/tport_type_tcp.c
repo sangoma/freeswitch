@@ -184,12 +184,31 @@ int tport_tcp_init_client(tport_primary_t *pri,
 int tport_tcp_init_secondary(tport_t *self, int socket, int accepted,
 			     char const **return_reason)
 {
-  int one = 1;
+  int val = 1;
 
   self->tp_has_connection = 1;
 
-  if (setsockopt(socket, SOL_TCP, TCP_NODELAY, (void *)&one, sizeof one) == -1)
+  self->tp_params->tpp_idle = UINT_MAX;
+
+  if (setsockopt(socket, SOL_TCP, TCP_NODELAY, (void *)&val, sizeof val) == -1)
     return *return_reason = "TCP_NODELAY", -1;
+
+#if defined(SO_KEEPALIVE)
+  setsockopt(socket, SOL_SOCKET, SO_KEEPALIVE, (void *)&val, sizeof val);
+#endif
+  val = (int)(self->tp_params->tpp_socket_keepalive);
+#if defined(TCP_KEEPIDLE)
+  if (val != 0 && val != UINT_MAX) {
+    SU_DEBUG_3(("%s(%p): Setting TCP_KEEPIDLE to %d\n",
+                __func__, (void *)self, val));
+    setsockopt(socket, SOL_TCP, TCP_KEEPIDLE, (void *)&val, sizeof val);}
+#endif
+#if defined(TCP_KEEPINTVL)
+  if (val != 0 && val != UINT_MAX) {
+    SU_DEBUG_3(("%s(%p): Setting TCP_KEEPINTVL to %d\n",
+                __func__, (void *)self, val));
+    setsockopt(socket, SOL_TCP, TCP_KEEPINTVL, (void *)&val, sizeof val);}
+#endif
 
   if (!accepted)
     tport_tcp_setsndbuf(socket, 64 * 1024);

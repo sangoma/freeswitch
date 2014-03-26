@@ -313,6 +313,10 @@ static void parse_naptr(const ldns_rr *naptr, const char *number, enum_record_t 
 	char *regex, *replace;
 	
 	if (zstr(str)) {
+		if (str != NULL) {
+			/* In this case ldns_rr2str returned a malloc'd null terminated string */
+			switch_safe_free(str);
+		}
 		return;
 	}
 
@@ -926,5 +930,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_enum_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

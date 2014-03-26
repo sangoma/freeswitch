@@ -1,6 +1,6 @@
 /*
  * STFU (S)ort (T)ransportable (F)ramed (U)tterances
- * Copyright (c) 2007-2012 Anthony Minessale II <anthm@freeswitch.org>
+ * Copyright (c) 2007-2014 Anthony Minessale II <anthm@freeswitch.org>
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -367,7 +367,7 @@ void stfu_n_reset(stfu_instance_t *i)
 	i->last_rd_ts = 0;
 	i->miss_count = 0;	
     i->packet_count = 0;
-
+    i->ts_offset = 0;
 
 }
 
@@ -447,6 +447,10 @@ stfu_status_t stfu_n_add_data(stfu_instance_t *i, uint32_t ts, uint16_t seq, uin
 
 
         if (i->max_drift) {
+            if (i->drift_dropped_packets > 500) {
+                stfu_n_reset(i);
+            }
+
             if (i->ts_drift < i->max_drift) {
                 if (++i->drift_dropped_packets < i->drift_max_dropped) {
                     stfu_log(STFU_LOG_EMERG, "%s TOO LATE !!! %u \n\n\n", i->name, ts);
@@ -821,7 +825,9 @@ STFU_DECLARE(int32_t) stfu_n_copy_next_frame(stfu_instance_t *jb, uint32_t times
 
 	uint32_t target_ts = 0;
 
-	seq = seq;
+#ifdef WIN32
+	UNREFERENCED_PARAMETER(seq);
+#endif
 	if (!next_frame) return 0;
 
 	target_ts = timestamp + (distance - 1) * jb->samples_per_packet;
@@ -981,5 +987,5 @@ static void default_logger(const char *file, const char *func, int line, int lev
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

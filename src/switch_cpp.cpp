@@ -46,6 +46,7 @@ static void event_handler(switch_event_t *event)
 
 	if (switch_queue_trypush(E->events, dup) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Cannot queue any more events.....\n");
+		switch_event_destroy(&dup);
 	}
 
 }
@@ -56,17 +57,21 @@ SWITCH_DECLARE_CONSTRUCTOR EventConsumer::EventConsumer(const char *event_name, 
 	switch_core_new_memory_pool(&pool);	
 	switch_queue_create(&events, len, pool);
 	node_index = 0;
+	ready = 1;
 	
 	if (!zstr(event_name)) {
 		bind(event_name, subclass_name);
 	}
-
 }
 
 SWITCH_DECLARE(int) EventConsumer::bind(const char *event_name, const char *subclass_name)
 {
 	switch_event_types_t event_id = SWITCH_EVENT_CUSTOM;
 	switch_name_event(event_name, &event_id);
+
+	if (!ready) {
+		return 0;
+	}
 
 
 	if (zstr(subclass_name)) {
@@ -90,6 +95,10 @@ SWITCH_DECLARE(Event *) EventConsumer::pop(int block, int timeout)
 	void *pop = NULL;
 	Event *ret = NULL;
 	switch_event_t *event;
+
+	if (!ready) {
+		return NULL;
+	}
 	
 	if (block) {
 		if (timeout > 0) {
@@ -108,19 +117,42 @@ SWITCH_DECLARE(Event *) EventConsumer::pop(int block, int timeout)
 	return ret;
 }
 
-SWITCH_DECLARE_CONSTRUCTOR EventConsumer::~EventConsumer()
+SWITCH_DECLARE(void) EventConsumer::cleanup()
 {
+
 	uint32_t i;
+	void *pop;
+
+	if (!ready) {
+		return;
+	}	
+
+	ready = 0;
 
 	for (i = 0; i < node_index; i++) {
 		switch_event_unbind(&enodes[i]);
 	}
 
+	node_index = 0;
+
 	if (events) {
 		switch_queue_interrupt_all(events);
 	}
 
+	while(switch_queue_trypop(events, &pop) == SWITCH_STATUS_SUCCESS) {
+		switch_event_t *event = (switch_event_t *) pop;
+		switch_event_destroy(&event);
+	}
+
+
 	switch_core_destroy_memory_pool(&pool);
+
+}
+
+
+SWITCH_DECLARE_CONSTRUCTOR EventConsumer::~EventConsumer()
+{
+	cleanup();
 }
 
 SWITCH_DECLARE_CONSTRUCTOR IVRMenu::IVRMenu(IVRMenu *main,
@@ -129,6 +161,7 @@ SWITCH_DECLARE_CONSTRUCTOR IVRMenu::IVRMenu(IVRMenu *main,
 											const char *short_greeting_sound,
 											const char *invalid_sound,
 											const char *exit_sound,
+											const char *transfer_sound,
 											const char *confirm_macro,
 											const char *confirm_key,
 											const char *tts_engine,
@@ -148,7 +181,7 @@ SWITCH_DECLARE_CONSTRUCTOR IVRMenu::IVRMenu(IVRMenu *main,
 	}
 
 	switch_ivr_menu_init(&menu, main ? main->menu : NULL, name, greeting_sound, short_greeting_sound, invalid_sound, 
-						 exit_sound, confirm_macro, confirm_key, tts_engine, tts_voice, confirm_attempts, inter_timeout,
+						 exit_sound, transfer_sound, confirm_macro, confirm_key, tts_engine, tts_voice, confirm_attempts, inter_timeout,
 						 digit_len, timeout, max_failures, max_timeouts, pool);
 	
 
@@ -219,11 +252,13 @@ SWITCH_DECLARE(const char *) API::executeString(const char *cmd)
 {
 	char *arg;
 	switch_stream_handle_t stream = { 0 };
-	char *mycmd = strdup(cmd);
-
-	switch_assert(mycmd);
+	char *mycmd = NULL;
 
 	this_check("");
+
+	mycmd = strdup(cmd);
+
+	switch_assert(mycmd);
 
 	if ((arg = strchr(mycmd, ' '))) {
 		*arg++ = '\0';
@@ -738,6 +773,7 @@ SWITCH_DECLARE(int) CoreSession::speak(char *text)
 
 SWITCH_DECLARE(void) CoreSession::set_tts_parms(char *tts_name_p, char *voice_name_p)
 {
+	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "set_tts_parms is deprecated. Use set_tts_params.\n");
 	this_check_void();
 	sanity_check_noreturn;
 	switch_safe_free(tts_name);
@@ -746,7 +782,15 @@ SWITCH_DECLARE(void) CoreSession::set_tts_parms(char *tts_name_p, char *voice_na
     voice_name = strdup(voice_name_p);
 }
 
-
+SWITCH_DECLARE(void) CoreSession::set_tts_params(char *tts_name_p, char *voice_name_p)
+{
+	this_check_void();
+	sanity_check_noreturn;
+	switch_safe_free(tts_name);
+	switch_safe_free(voice_name);
+    tts_name = strdup(tts_name_p);
+    voice_name = strdup(voice_name_p);
+}
 
 SWITCH_DECLARE(int) CoreSession::collectDigits(int abs_timeout) {
 	return collectDigits(0, abs_timeout);
@@ -1178,6 +1222,18 @@ SWITCH_DECLARE(void) CoreSession::setHangupHook(void *hangup_func) {
     switch_core_event_hook_add_state_change(session, hanguphook);
 }
 
+SWITCH_DECLARE(void) CoreSession::consoleLog(char *level_str, char *msg)
+{
+	switch_log_level_t level = SWITCH_LOG_DEBUG;
+	if (level_str) {
+		level = switch_log_str2level(level_str);
+		if (level == SWITCH_LOG_INVALID) {
+			level = SWITCH_LOG_DEBUG;
+		}
+	}
+	switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), level, "%s", switch_str_nil(msg));
+}
+
 /* ---- methods not bound to CoreSession instance ---- */
 
 
@@ -1245,7 +1301,7 @@ SWITCH_DECLARE(bool) email(char *to, char *from, char *headers, char *body, char
     return false;
 }
 
-SWITCH_DECLARE(void) msleep(unsigned ms)
+SWITCH_DECLARE(void) switch_msleep(unsigned ms)
 {
 	switch_sleep(ms * 1000);
 	return;
@@ -1339,5 +1395,5 @@ SWITCH_DECLARE(switch_status_t) CoreSession::process_callback_result(char *resul
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

@@ -48,6 +48,7 @@ const char *default_template =
 
 static struct {
 	switch_memory_pool_t *pool;
+	switch_mutex_t *mutex;
 	switch_hash_t *fd_hash;
 	switch_hash_t *template_hash;
 	char *log_dir;
@@ -130,6 +131,7 @@ static void write_cdr(const char *path, const char *log_line)
 	unsigned int bytes_in, bytes_out;
 	int loops = 0;
 
+	switch_mutex_lock(globals.mutex);
 	if (!(fd = switch_core_hash_find(globals.fd_hash, path))) {
 		fd = switch_core_alloc(globals.pool, sizeof(*fd));
 		switch_assert(fd);
@@ -139,6 +141,7 @@ static void write_cdr(const char *path, const char *log_line)
 		fd->path = switch_core_strdup(globals.pool, path);
 		switch_core_hash_insert(globals.fd_hash, path, fd);
 	}
+	switch_mutex_unlock(globals.mutex);
 
 	switch_mutex_lock(fd->mutex);
 	bytes_out = (unsigned) strlen(log_line);
@@ -275,6 +278,7 @@ static void do_rotate_all()
 		return;
 	}
 
+	switch_mutex_lock(globals.mutex);
 	for (hi = switch_hash_first(NULL, globals.fd_hash); hi; hi = switch_hash_next(hi)) {
 		switch_hash_this(hi, NULL, NULL, &val);
 		fd = (cdr_fd_t *) val;
@@ -282,6 +286,27 @@ static void do_rotate_all()
 		do_rotate(fd);
 		switch_mutex_unlock(fd->mutex);
 	}
+	switch_mutex_unlock(globals.mutex);
+}
+
+
+static void do_teardown()
+{
+	switch_hash_index_t *hi;
+	void *val;
+	cdr_fd_t *fd;
+	switch_mutex_lock(globals.mutex);
+	for (hi = switch_hash_first(NULL, globals.fd_hash); hi; hi = switch_hash_next(hi)) {
+		switch_hash_this(hi, NULL, NULL, &val);
+		fd = (cdr_fd_t *) val;
+		switch_mutex_lock(fd->mutex);
+		if (fd->fd > -1) {
+			close(fd->fd);
+			fd->fd = -1;
+		}
+		switch_mutex_unlock(fd->mutex);
+	}
+	switch_mutex_unlock(globals.mutex);
 }
 
 
@@ -410,6 +435,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_cdr_csv_load)
 
 	load_config(pool);
 
+	switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, globals.pool);
+
 	if ((status = switch_dir_make_recursive(globals.log_dir, SWITCH_DEFAULT_DIR_PERMS, pool)) != SWITCH_STATUS_SUCCESS) {
 		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Error creating %s\n", globals.log_dir);
 		return status;
@@ -438,6 +465,9 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_cdr_csv_shutdown)
 	switch_event_unbind_callback(event_handler);
 	switch_core_remove_state_handler(&state_handlers);
 
+	do_teardown();
+	switch_core_hash_destroy(&globals.fd_hash);
+	switch_core_hash_destroy(&globals.template_hash);
 
 	return SWITCH_STATUS_SUCCESS;
 }
@@ -452,5 +482,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_cdr_csv_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

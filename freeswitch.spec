@@ -22,6 +22,7 @@
 #                 Marc Olivier Chouinard
 #                 Raymond Chandler
 #                 Ken Rice <krice@freeswitch.org>
+#                 Chris Rienzo <crienzo@grasshopper.com>
 #
 # Maintainer(s): Ken Rice <krice@freeswitch.org>
 #
@@ -33,6 +34,8 @@
 %define build_py26_esl 0
 %define build_timerfd 0
 %define build_mod_esl 0
+%define build_mod_rayo 1
+%define build_mod_ssml 1
 
 %{?with_sang_tc:%define build_sng_tc 1 }
 %{?with_sang_isdn:%define build_sng_isdn 1 }
@@ -112,18 +115,18 @@ Vendor:       	http://www.freeswitch.org/
 ######################################################################################################################
 Source0:        http://files.freeswitch.org/%{name}-%{version}.tar.bz2
 Source1:	http://files.freeswitch.org/downloads/libs/celt-0.10.0.tar.gz
-Source2:	http://files.freeswitch.org/downloads/libs/flite-1.5.1-current.tar.bz2
-Source3:	http://files.freeswitch.org/downloads/libs/lame-3.97.tar.gz
+Source2:	http://files.freeswitch.org/downloads/libs/flite-1.5.4-current.tar.bz2
+Source3:	http://files.freeswitch.org/downloads/libs/lame-3.98.4.tar.gz
 Source4:	http://files.freeswitch.org/downloads/libs/libshout-2.2.2.tar.gz
 Source5:	http://files.freeswitch.org/downloads/libs/mpg123-1.13.2.tar.gz
-Source6:	http://files.freeswitch.org/downloads/libs/openldap-2.4.11.tar.gz
-Source7:	http://files.freeswitch.org/downloads/libs/pocketsphinx-0.7.tar.gz
-Source8:	http://files.freeswitch.org/downloads/libs/soundtouch-1.6.0.tar.gz
-Source9:	http://files.freeswitch.org/downloads/libs/sphinxbase-0.7.tar.gz
-Source10:	http://files.freeswitch.org/downloads/libs/communicator_semi_6000_20080321.tar.gz
-Source11:	http://files.freeswitch.org/downloads/libs/libmemcached-0.32.tar.gz
-Source12:       http://files.freeswitch.org/downloads/libs/json-c-0.9.tar.gz
-Source13:       http://files.freeswitch.org/downloads/libs/opus-0.9.0.tar.gz
+#Source6:	http://files.freeswitch.org/downloads/libs/openldap-2.4.11.tar.gz
+Source6:	http://files.freeswitch.org/downloads/libs/pocketsphinx-0.7.tar.gz
+Source7:	http://files.freeswitch.org/downloads/libs/soundtouch-1.7.1.tar.gz
+Source8:	http://files.freeswitch.org/downloads/libs/sphinxbase-0.7.tar.gz
+Source9:	http://files.freeswitch.org/downloads/libs/communicator_semi_6000_20080321.tar.gz
+Source10:	http://files.freeswitch.org/downloads/libs/libmemcached-0.32.tar.gz
+Source11:       http://files.freeswitch.org/downloads/libs/json-c-0.9.tar.gz
+Source12:       http://files.freeswitch.org/downloads/libs/opus-1.1.tar.gz
 Prefix:        	%{prefix}
 
 
@@ -137,7 +140,7 @@ Prefix:        	%{prefix}
 #BuildRequires: openldap2-devel
 BuildRequires: lzo-devel
 %else
-BuildRequires: openldap-devel
+#BuildRequires: openldap-devel
 %endif
 BuildRequires: autoconf
 BuildRequires: automake
@@ -182,7 +185,7 @@ Requires: ncurses
 Requires: openssl
 Requires: unixODBC
 Requires: libjpeg
-Requires: openldap
+#Requires: openldap
 Requires: db4
 Requires: gdbm
 Requires: zlib
@@ -770,13 +773,13 @@ Theora Video Codec support for FreeSWITCH open source telephony platform.
 #				FreeSWITCH Directory Modules
 ######################################################################################################################
 
-%package directory-ldap
-Summary:        LDAP Directory support for FreeSWITCH open source telephony platform
-Group:          System/Libraries
-Requires:       %{name} = %{version}-%{release}
+#%package directory-ldap
+#Summary:        LDAP Directory support for FreeSWITCH open source telephony platform
+#Group:          System/Libraries
+#Requires:       %{name} = %{version}-%{release}
 
-%description directory-ldap
-LDAP Directory support for FreeSWITCH open source telephony platform.
+#%description directory-ldap
+#LDAP Directory support for FreeSWITCH open source telephony platform.
 
 ######################################################################################################################
 #				FreeSWITCH Endpoint Modules
@@ -969,6 +972,17 @@ Requires:	%{name} = %{version}-%{release}
 %description event-json-cdr
 JSON CDR Logger for FreeSWITCH.
 
+%if %{build_mod_rayo}
+%package event-rayo
+Summary:        Rayo (XMPP 3PCC) server for the FreeSWITCH open source telephony platform
+Group:          System/Libraries
+Requires:	%{name} = %{version}-%{release}
+
+%description event-rayo
+Rayo 3PCC for FreeSWITCH.  http://rayo.org   http://xmpp.org/extensions/xep-0327.html
+Rayo is an XMPP protocol extension for third-party control of telephone calls.
+%endif
+
 %package event-snmp
 Summary:	SNMP stats reporter for the FreeSWITCH open source telephony platform
 Group:		System/Libraries
@@ -1031,6 +1045,16 @@ Requires:	%{name} = %{version}-%{release}
 %description format-mod-shout
 Mod Shout is a FreeSWITCH module to allow you to stream audio from MP3s or a i
 shoutcast stream.
+
+%if %{build_mod_ssml}
+%package format-ssml
+Summary:        Adds Speech Synthesis Markup Language (SSML) parser format for the FreeSWITCH open source telephony platform
+Group:          System/Libraries
+Requires:       %{name} = %{version}-%{release}
+
+%description format-ssml
+mod_ssml is a FreeSWITCH module that renders SSML into audio.  This module requires a text-to-speech module for speech synthesis.
+%endif
 
 %package format-tone-stream
 Summary:	Implements TGML Tone Generation for the FreeSWITCH open source telephony platform
@@ -1266,7 +1290,6 @@ cp %{SOURCE9} libs/
 cp %{SOURCE10} libs/
 cp %{SOURCE11} libs/
 cp %{SOURCE12} libs/
-cp %{SOURCE13} libs/
 
 ######################################################################################################################
 #
@@ -1369,6 +1392,9 @@ EVENT_HANDLERS_MODULES="event_handlers/mod_cdr_csv event_handlers/mod_cdr_pg_csv
 			event_handlers/mod_cdr_mongodb event_handlers/mod_erlang_event event_handlers/mod_event_multicast \
 			event_handlers/mod_event_socket event_handlers/mod_json_cdr \
 			event_handlers/mod_snmp"
+%if %{build_mod_rayo}
+EVENT_HANDLERS_MODULES+=" event_handlers/mod_rayo"
+%endif
 
 #### BUILD ISSUES NET RESOLVED FOR RELEASE event_handlers/mod_event_zmq 
 ######################################################################################################################
@@ -1378,6 +1404,9 @@ EVENT_HANDLERS_MODULES="event_handlers/mod_cdr_csv event_handlers/mod_cdr_pg_csv
 ######################################################################################################################
 FORMATS_MODULES="formats/mod_local_stream formats/mod_native_file formats/mod_portaudio_stream \
                  formats/mod_shell_stream formats/mod_shout formats/mod_sndfile formats/mod_tone_stream"
+%if %{build_mod_ssml}
+FORMATS_MODULES+=" formats/mod_ssml"
+%endif
 
 ######################################################################################################################
 #
@@ -1651,7 +1680,7 @@ fi
 %config(noreplace) %attr(0640, freeswitch, daemon) %{HTDOCSDIR}/*
 %ifos linux
 /etc/rc.d/init.d/freeswitch
-/etc/sysconfig/freeswitch
+%config(noreplace) /etc/sysconfig/freeswitch
 %if 0%{?suse_version} > 100
 /usr/sbin/rcfreeswitch
 %endif
@@ -1697,8 +1726,7 @@ fi
 %{LIBDIR}/*.a
 %{LIBDIR}/*.la
 %{PKGCONFIGDIR}/*
-%{MODINSTDIR}/*.a
-%{MODINSTDIR}/*.la
+%{MODINSTDIR}/*.*a
 %{INCLUDEDIR}/*.h
 
 
@@ -1766,6 +1794,7 @@ fi
 %config(noreplace) %attr(0640, freeswitch, daemon) %{sysconfdir}/autoload_configs/switch.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{sysconfdir}/autoload_configs/syslog.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{sysconfdir}/autoload_configs/timezones.conf.xml
+%config(noreplace) %attr(0640, freeswitch, daemon) %{sysconfdir}/autoload_configs/translate.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{sysconfdir}/autoload_configs/tts_commandline.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{sysconfdir}/autoload_configs/unicall.conf.xml
 %config(noreplace) %attr(0640, freeswitch, daemon) %{sysconfdir}/autoload_configs/unimrcp.conf.xml
@@ -2071,9 +2100,9 @@ fi
 #
 ######################################################################################################################
 
-%files directory-ldap
-%defattr(-,freeswitch,daemon)
-%{MODINSTDIR}/mod_theora.so*
+#%files directory-ldap
+#%defattr(-,freeswitch,daemon)
+#%{MODINSTDIR}/mod_theora.so*
 
 ######################################################################################################################
 #
@@ -2177,6 +2206,12 @@ fi
 %defattr(-, freeswitch, daemon)
 %{MODINSTDIR}/mod_json_cdr.so*
 
+%if %{build_mod_rayo}
+%files event-rayo 
+%defattr(-, freeswitch, daemon)
+%{MODINSTDIR}/mod_rayo.so*
+%endif
+
 %files event-snmp
 %defattr(-, freeswitch, daemon)
 %{MODINSTDIR}/mod_snmp.so*
@@ -2206,6 +2241,12 @@ fi
 %files format-mod-shout
 %defattr(-, freeswitch, daemon)
 %{MODINSTDIR}/mod_shout.so*
+
+%if %{build_mod_ssml}
+%files format-ssml
+%defattr(-, freeswitch, daemon)
+%{MODINSTDIR}/mod_ssml.so*
+%endif
 
 %files format-tone-stream
 %defattr(-, freeswitch, daemon)
@@ -2373,6 +2414,9 @@ fi
 #
 ######################################################################################################################
 %changelog
+* Mon Dec 09 2013 - crienzo@grasshopper.com
+- Add mod_ssml, mod_rayo
+- Fix build on master
 * Thu Sep 19 2012 - krice@freeswitch.org
 - Add support for Spanish and Portugese say language modules
 * Thu Jan 26 2012 - krice@freeswitch.org

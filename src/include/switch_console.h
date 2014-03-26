@@ -83,6 +83,7 @@ SWITCH_DECLARE(switch_status_t) switch_console_add_complete_func(const char *nam
 SWITCH_DECLARE(switch_status_t) switch_console_del_complete_func(const char *name);
 SWITCH_DECLARE(switch_status_t) switch_console_run_complete_func(const char *func, const char *line,
 																 const char *last_word, switch_console_callback_match_t **matches);
+SWITCH_DECLARE(void) switch_console_push_match_unique(switch_console_callback_match_t **matches, const char *new_val);
 SWITCH_DECLARE(void) switch_console_push_match(switch_console_callback_match_t **matches, const char *new_val);
 SWITCH_DECLARE(void) switch_console_free_matches(switch_console_callback_match_t **matches);
 SWITCH_DECLARE(unsigned char) switch_console_complete(const char *line, const char *last_word,
@@ -102,5 +103,5 @@ SWITCH_END_EXTERN_C
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

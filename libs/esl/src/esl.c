@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2012, Anthony Minessale II
+ * Copyright (c) 2007-2014, Anthony Minessale II
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -59,6 +59,7 @@
 /* These warnings need to be ignored warning in sdk header */
 #include <Ws2tcpip.h>
 #include <windows.h>
+#include <errno.h>
 #ifndef errno
 #define errno WSAGetLastError()
 #endif
@@ -476,15 +477,14 @@ ESL_DECLARE(esl_status_t) esl_attach_handle(esl_handle_t *handle, esl_socket_t s
 
 	esl_send_recv(handle, "connect\n\n");
 	
-	
 	if (handle->last_sr_event) {
 		handle->info_event = handle->last_sr_event;
 		handle->last_sr_event = NULL;
 		return ESL_SUCCESS;
 	}
 	
-	handle->connected = 0;
-
+	esl_disconnect(handle);
+	
 	return ESL_FAIL;
 }
 
@@ -658,15 +658,42 @@ static void *client_thread(esl_thread_t *me, void *obj)
 
 }
 
-ESL_DECLARE(esl_status_t) esl_listen(const char *host, esl_port_t port, esl_listen_callback_t callback)
+static int prepare_sock(esl_socket_t sock)
+{
+	int r = 0;
+
+#ifdef WIN32
+		u_long arg = 1;
+		if (ioctlsocket(sock, FIONBIO, &arg) == SOCKET_ERROR) {
+			r = -1;
+		}
+#else
+		int fd_flags = fcntl(sock, F_GETFL, 0);
+		if (fcntl(sock, F_SETFL, fd_flags | O_NONBLOCK)) {
+			r = -1;
+		}
+#endif
+
+		return r;
+	
+}
+
+
+ESL_DECLARE(esl_status_t) esl_listen(const char *host, esl_port_t port, esl_listen_callback_t callback, esl_socket_t *server_sockP)
 {
 	esl_socket_t server_sock = ESL_SOCK_INVALID;
 	struct sockaddr_in addr;
 	esl_status_t status = ESL_SUCCESS;
 	
+
 	if ((server_sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
 		return ESL_FAIL;
 	}
+
+	if (server_sockP) {
+		*server_sockP = server_sock;
+	}
+	
 
 	esl_socket_reuseaddr(server_sock);
 		   
@@ -696,11 +723,11 @@ ESL_DECLARE(esl_status_t) esl_listen(const char *host, esl_port_t port, esl_list
 
 		clntLen = sizeof(echoClntAddr);
     
-		if ((client_sock = accept(server_sock, (struct sockaddr *) &echoClntAddr, &clntLen)) == ESL_SOCK_INVALID) {
+		if ((client_sock = accept(server_sock, (struct sockaddr *) &echoClntAddr, &clntLen)) == ESL_SOCK_INVALID && errno != EINTR) {
 			status = ESL_FAIL;
 			goto end;
 		}
-		
+		prepare_sock(client_sock);
 		callback(server_sock, client_sock, &echoClntAddr);
 	}
 
@@ -754,11 +781,13 @@ ESL_DECLARE(esl_status_t) esl_listen_threaded(const char *host, esl_port_t port,
 
 		clntLen = sizeof(echoClntAddr);
     
-		if ((client_sock = accept(server_sock, (struct sockaddr *) &echoClntAddr, &clntLen)) == ESL_SOCK_INVALID) {
+		if ((client_sock = accept(server_sock, (struct sockaddr *) &echoClntAddr, &clntLen)) == ESL_SOCK_INVALID && errno != EINTR) {
 			status = ESL_FAIL;
 			goto end;
 		}
 		
+		prepare_sock(client_sock);
+
 		handler = malloc(sizeof(*handler));
 		esl_assert(handler);
 
@@ -767,7 +796,6 @@ ESL_DECLARE(esl_status_t) esl_listen_threaded(const char *host, esl_port_t port,
 		handler->server_sock = server_sock;
 		handler->client_sock = client_sock;
 		handler->addr = echoClntAddr;
-
 		esl_thread_create_detached(client_thread, handler);
 	}
 
@@ -1078,7 +1106,7 @@ ESL_DECLARE(esl_status_t) esl_connect_timeout(esl_handle_t *handle, const char *
 	return ESL_SUCCESS;
 
  fail:
-	
+
 	handle->connected = 0;
 	esl_disconnect(handle);
 
@@ -1089,7 +1117,8 @@ ESL_DECLARE(esl_status_t) esl_disconnect(esl_handle_t *handle)
 {
 	esl_mutex_t *mutex = handle->mutex;
 	esl_status_t status = ESL_FAIL;
-	
+	esl_event_t *ep;
+
 	if (handle->destroyed) {
 		return ESL_FAIL;
 	}
@@ -1098,10 +1127,19 @@ ESL_DECLARE(esl_status_t) esl_disconnect(esl_handle_t *handle)
 		esl_mutex_lock(mutex);
 	}
 
-	handle->destroyed = 1;
+
 	handle->connected = 0;
 
-	esl_event_safe_destroy(&handle->race_event);
+	ep = handle->race_event;
+
+	while(ep) {
+		esl_event_t *e = ep;
+		ep = ep->next;
+		if (e) {
+			esl_event_destroy(&e);
+		}
+	}
+
 	esl_event_safe_destroy(&handle->last_event);
 	esl_event_safe_destroy(&handle->last_sr_event);
 	esl_event_safe_destroy(&handle->last_ievent);
@@ -1119,11 +1157,13 @@ ESL_DECLARE(esl_status_t) esl_disconnect(esl_handle_t *handle)
 		esl_mutex_unlock(mutex);
 		esl_mutex_destroy(&mutex);
 	}
-
+	
 	if (handle->packet_buf) {
 		esl_buffer_destroy(&handle->packet_buf);
 	}
-	
+
+	memset(handle, 0, sizeof(*handle));
+	handle->destroyed = 1;
 
 	return status;
 }
@@ -1150,7 +1190,11 @@ ESL_DECLARE(esl_status_t) esl_recv_event_timed(esl_handle_t *handle, uint32_t ms
 		esl_mutex_unlock(handle->mutex);
 	}
 
-	activity = esl_wait_sock(handle->sock, ms, ESL_POLL_READ|ESL_POLL_ERROR);
+	if (handle->packet_buf && esl_buffer_inuse(handle->packet_buf)) {
+		activity = ESL_POLL_READ;
+	} else {
+		activity = esl_wait_sock(handle->sock, ms, ESL_POLL_READ|ESL_POLL_ERROR);
+	}
 	
 	if (activity < 0) {
 		handle->connected = 0;
@@ -1160,9 +1204,6 @@ ESL_DECLARE(esl_status_t) esl_recv_event_timed(esl_handle_t *handle, uint32_t ms
 	if (activity == 0 || !(activity & ESL_POLL_READ) || (esl_mutex_trylock(handle->mutex) != ESL_SUCCESS)) {
 		return ESL_BREAK;
 	}
-
-	activity = esl_wait_sock(handle->sock, ms, ESL_POLL_READ|ESL_POLL_ERROR);
-
 
 	if (activity < 0) { 
 		handle->connected = 0;
@@ -1183,21 +1224,24 @@ ESL_DECLARE(esl_status_t) esl_recv_event_timed(esl_handle_t *handle, uint32_t ms
 
 static esl_ssize_t handle_recv(esl_handle_t *handle, void *data, esl_size_t datalen)
 {
-	int activity;
+	esl_ssize_t activity = -1;
 	
-	while (handle->connected) {
-		activity = esl_wait_sock(handle->sock, 1000, ESL_POLL_READ|ESL_POLL_ERROR);
-		
-		if (activity > 0 && (activity & ESL_POLL_READ)) {
-			return recv(handle->sock, data, datalen, 0);
+	if (handle->connected) {
+		if ((activity = esl_wait_sock(handle->sock, 1000, ESL_POLL_READ|ESL_POLL_ERROR)) > 0) {
+			if ((activity & ESL_POLL_ERROR)) {
+				activity = -1;
+			} else if ((activity & ESL_POLL_READ)) {
+				if (!(activity = recv(handle->sock, data, datalen, 0))) {
+					activity = -1;
+				} else if (activity < 0 && (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)) {
+					activity = 0;
+				}
+			}
 		}
 
-		if (activity < 0) {
-			return errno == EINTR ? 0 : -1;
-		}
 	}
 
-	return -1;
+	return activity;
 }
 
 ESL_DECLARE(esl_status_t) esl_recv_event(esl_handle_t *handle, int check_q, esl_event_t **save_event)
@@ -1210,7 +1254,6 @@ ESL_DECLARE(esl_status_t) esl_recv_event(esl_handle_t *handle, int check_q, esl_
 	char *col;
 	char *cl;
 	esl_ssize_t len;
-	int zc = 0;
 
 	if (!handle || !handle->connected || handle->sock == ESL_SOCK_INVALID) {
 		return ESL_FAIL;
@@ -1232,7 +1275,6 @@ ESL_DECLARE(esl_status_t) esl_recv_event(esl_handle_t *handle, int check_q, esl_
 		goto parse_event;
 	}
 
-	
 	while(!revent && handle->connected) {
 		esl_size_t len1;
 		
@@ -1246,7 +1288,7 @@ ESL_DECLARE(esl_status_t) esl_recv_event(esl_handle_t *handle, int check_q, esl_
 			revent->event_id = ESL_EVENT_SOCKET_DATA;
 			esl_event_add_header_string(revent, ESL_STACK_BOTTOM, "Event-Name", "SOCKET_DATA");
 			
-			hname = p = data;
+			p = data;
 
 			while(p) {
 				hname = p;
@@ -1277,21 +1319,18 @@ ESL_DECLARE(esl_status_t) esl_recv_event(esl_handle_t *handle, int check_q, esl_
 
 			break;
 		}
-
-		rrval = handle_recv(handle, handle->socket_buf, sizeof(handle->socket_buf) - 1);
-		*((char *)handle->socket_buf + ESL_CLAMP(0, sizeof(handle->socket_buf) - 1, rrval)) = '\0';
 		
+		rrval = handle_recv(handle, handle->socket_buf, sizeof(handle->socket_buf) - 1);
+
 		if (rrval == 0) {
-			if (++zc >= 100) {
-				goto fail;
-			}
 			continue;
 		} else if (rrval < 0) {
-			strerror_r(handle->errnum, handle->err, sizeof(handle->err));
+			if (!(strerror_r(handle->errnum, handle->err, sizeof(handle->err))))
+				*(handle->err)=0;
 			goto fail;
 		}
 
-		zc = 0;
+		*((char *)handle->socket_buf + ESL_CLAMP(0, sizeof(handle->socket_buf) - 1, rrval)) = '\0';
 
 		esl_buffer_write(handle->packet_buf, handle->socket_buf, rrval);
 	}
@@ -1316,20 +1355,16 @@ ESL_DECLARE(esl_status_t) esl_recv_event(esl_handle_t *handle, int check_q, esl_
 				sofar = esl_buffer_read(handle->packet_buf, body, len);
 			} else {
 				r = handle_recv(handle, handle->socket_buf, sizeof(handle->socket_buf) - 1);
-				*((char *)handle->socket_buf + ESL_CLAMP(0, sizeof(handle->socket_buf) - 1, r)) = '\0';
-
+				
 				if (r < 0) {
-					strerror_r(handle->errnum, handle->err, sizeof(handle->err));
+					if (!(strerror_r(handle->errnum, handle->err, sizeof(handle->err))))
+						*(handle->err)=0;
 					goto fail;
 				} else if (r == 0) {
-					if (++zc >= 100) {
-						goto fail;
-					}
 					continue;
 				}
 
-				zc = 0;
-				
+				*((char *)handle->socket_buf + ESL_CLAMP(0, sizeof(handle->socket_buf) - 1, r)) = '\0';
 				esl_buffer_write(handle->packet_buf, handle->socket_buf, r);
 			}
 			
@@ -1464,14 +1499,16 @@ ESL_DECLARE(esl_status_t) esl_send(esl_handle_t *handle, const char *cmd)
 	
 	if (send(handle->sock, cmd, strlen(cmd), 0) != (int)strlen(cmd)) {
 		handle->connected = 0;
-		strerror_r(handle->errnum, handle->err, sizeof(handle->err));
+		if (!(strerror_r(handle->errnum, handle->err, sizeof(handle->err))))
+			*(handle->err)=0;
 		return ESL_FAIL;
 	}
 	
 	if (!(*e == '\n' && *(e-1) == '\n')) {
 		if (send(handle->sock, "\n\n", 2, 0) != 2) {
 			handle->connected = 0;
-			strerror_r(handle->errnum, handle->err, sizeof(handle->err));
+			if (!(strerror_r(handle->errnum, handle->err, sizeof(handle->err))))
+				*(handle->err)=0;
 			return ESL_FAIL;
 		}
 	}
@@ -1509,6 +1546,10 @@ ESL_DECLARE(esl_status_t) esl_send_recv_timed(esl_handle_t *handle, const char *
 	}
 
  recv:	
+	
+	esl_event_safe_destroy(&handle->last_sr_event);
+
+	*handle->last_sr_reply = '\0';
 
 	status = esl_recv_event_timed(handle, ms, 0, &handle->last_sr_event);
 
@@ -1519,7 +1560,7 @@ ESL_DECLARE(esl_status_t) esl_send_recv_timed(esl_handle_t *handle, const char *
 			esl_event_t *ep;
 
 			for(ep = handle->race_event; ep && ep->next; ep = ep->next);
-			
+
 			if (ep) {
 				ep->next = handle->last_sr_event;
 			} else {
@@ -1575,3 +1616,13 @@ ESL_DECLARE(unsigned int) esl_separate_string_string(char *buf, const char *deli
 	return count;
 }
 
+/* For Emacs:
+ * Local Variables:
+ * mode:c
+ * indent-tabs-mode:t
+ * tab-width:4
+ * c-basic-offset:4
+ * End:
+ * For VIM:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
+ */

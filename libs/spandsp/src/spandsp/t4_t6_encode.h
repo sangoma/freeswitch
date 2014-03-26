@@ -42,7 +42,7 @@ extern "C" {
 SPAN_DECLARE(int) t4_t6_encode_image_complete(t4_t6_encode_state_t *s);
 
 /*! \brief Get the next bit of the current image. The image will
-           be padded for the current minimum scan line time. 
+           be padded for the current minimum scan line time.
     \param s The T.4/T.6 context.
     \return The next bit (i.e. 0 or 1). SIG_STATUS_END_OF_DATA for no more data. */
 SPAN_DECLARE(int) t4_t6_encode_get_bit(t4_t6_encode_state_t *s);
@@ -52,7 +52,7 @@ SPAN_DECLARE(int) t4_t6_encode_get_bit(t4_t6_encode_state_t *s);
     \param s The T.4/T.6 context.
     \param buf The buffer into which the chunk is to written.
     \param max_len The maximum length of the chunk.
-    \return The actual length of the chunk. If this is less than max_len it 
+    \return The actual length of the chunk. If this is less than max_len it
             indicates that the end of the document has been reached. */
 SPAN_DECLARE(int) t4_t6_encode_get(t4_t6_encode_state_t *s, uint8_t buf[], int max_len);
 
@@ -76,6 +76,12 @@ SPAN_DECLARE(int) t4_t6_encode_set_encoding(t4_t6_encode_state_t *s, int encodin
     \param image_width The image width, in pixels.
     \return 0 for success, otherwise -1. */
 SPAN_DECLARE(int) t4_t6_encode_set_image_width(t4_t6_encode_state_t *s, int image_width);
+
+/*! \brief Set the length of the image.
+    \param s The T.4/T.6 context.
+    \param image_length The image length, in pixels.
+    \return 0 for success, otherwise -1. */
+SPAN_DECLARE(int) t4_t6_encode_set_image_length(t4_t6_encode_state_t *s, int image_length);
 
 /*! \brief Get the width of the image.
     \param s The T.4/T.6 context.
@@ -114,20 +120,23 @@ SPAN_DECLARE(logging_state_t *) t4_t6_encode_get_logging_state(t4_t6_encode_stat
 
 /*! \brief Restart a T.4 or T.6 encode context.
     \param s The T.4/T.6 context.
-    \param image width The image width, in pixels.
+    \param image_width The image width, in pixels.
+    \param image_length The image length, in pixels. This can be set to -1, if the length is not known.
     \return 0 for success, otherwise -1. */
-SPAN_DECLARE(int) t4_t6_encode_restart(t4_t6_encode_state_t *s, int image_width);
+SPAN_DECLARE(int) t4_t6_encode_restart(t4_t6_encode_state_t *s, int image_width, int image_length);
 
 /*! \brief Prepare to encode an image in T.4 or T.6 format.
     \param s The T.4/T.6 context.
     \param encoding The encoding mode.
-    \param image width The image width, in pixels.
+    \param image_width The image width, in pixels.
+    \param image_length The image length, in pixels. This can be set to -1, if the length is not known.
     \param handler A callback routine to handle decoded image rows.
     \param user_data An opaque pointer passed to handler.
     \return A pointer to the context, or NULL if there was a problem. */
 SPAN_DECLARE(t4_t6_encode_state_t *) t4_t6_encode_init(t4_t6_encode_state_t *s,
                                                        int encoding,
                                                        int image_width,
+                                                       int image_length,
                                                        t4_row_read_handler_t handler,
                                                        void *user_data);
 

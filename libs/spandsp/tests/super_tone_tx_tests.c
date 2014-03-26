@@ -41,7 +41,6 @@
 #include <ctype.h>
 #include <time.h>
 #include <inttypes.h>
-#include <sys/socket.h>
 #include <sndfile.h>
 
 #if defined(HAVE_LIBXML_XMLMEMORY_H)
@@ -212,7 +211,7 @@ static void get_tone_set(const char *tone_file, const char *set_id)
 #endif
     xmlChar *x;
 
-    ns = NULL;    
+    ns = NULL;
     xmlKeepBlanksDefault(0);
     xmlCleanupParser();
     doc = xmlParseFile(tone_file);

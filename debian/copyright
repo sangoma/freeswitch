@@ -1427,7 +1427,7 @@ Files: libs/js/nsprpub/pr/tests/tmocon.c
  libs/js/nsprpub/pr/src/md/unix/os_ReliantUNIX.s
  libs/js/nsprpub/pr/src/md/unix/os_Darwin_ppc.s
  libs/js/nsprpub/pr/src/md/unix/os_SunOS_ultrasparc.s
- libs/js/nsprpub/pr/src/md/unix/os_Linux_ia64.s 
+ libs/js/nsprpub/pr/src/md/unix/os_Linux_ia64.s
  libs/js/nsprpub/pr/tests/testfile.c
  libs/js/nsprpub/pr/src/md/unix/os_Darwin_x86.s
  libs/js/nsprpub/pr/src/md/unix/os_AIX.s
@@ -1552,7 +1552,7 @@ License: MPL-1.1
 Files: src/mod/say/mod_say_??/mod_say_??.c
  scripts/c/socket2me/socket2me.c
  src/mod/xml_int/mod_xml_scgi/xml_scgi_server.pl
-Copyright: 2007-2012, Anthony Minessale II <anthm@freeswitch.org>
+Copyright: 2007-2014, Anthony Minessale II <anthm@freeswitch.org>
  2007-2013, Anthony Minessale II
  2011-2012, Shahar Hadas
 License: BSD-3-clause
@@ -1765,7 +1765,6 @@ License: GPL-2+
 Files: src/mod/endpoints/mod_rtmp/rtmp.c
  src/mod/endpoints/mod_rtmp/mod_rtmp.[ch]
  src/mod/endpoints/mod_rtmp/rtmp_sig.c
- src/mod/endpoints/mod_html5/mod_html5.c
  src/mod/endpoints/mod_rtmp/rtmp_tcp.c
 Copyright: 2011-2012, Barracuda Networks Inc.
 License: MPL-1.1
@@ -1959,7 +1958,7 @@ License: LGPL
 
 Files: libs/libwebsockets/win32port/zlib/*
 Copyright: 1995-2010 Jean-loup Gailly
- 1995-2010 Mark Adler 
+ 1995-2010 Mark Adler
  1995-2010 Jean-loup Gailly and Mark Adler
  1995-2010 Jean-loup Gailly and Mark Adler ";
 License: zlib/libpng
@@ -1990,7 +1989,7 @@ License: ISC
 Files: libs/esl/*
 Copyright: 2007 Michael Jerris
  2002 Todd C. Miller <Todd.Miller@courtesan.com>
- 2007-2012, Anthony Minessale II
+ 2007-2014, Anthony Minessale II
  2000 The NetBSD Foundation, Inc.
 License: BSD-3-clause
 
@@ -2053,7 +2052,7 @@ Copyright: 1995 Abandoned Colin Plumb
 License: public-domain
 
 Files: libs/stfu/*
-Copyright: 2007-2012 Anthony Minessale II <anthm@freeswitch.org>
+Copyright: 2007-2014 Anthony Minessale II <anthm@freeswitch.org>
 License: MIT/X11 (BSD like)
 
 Files: libs/sqlite/*
@@ -2072,7 +2071,7 @@ License: BSD-3-clause
 
 Files: libs/openzap/*
 Copyright: 2005-2012, Anthony Minessale II <anthm@freeswitch.org>
- 2007-2012, Anthony Minessale II, Nenad Corbic
+ 2007-2014, Anthony Minessale II, Nenad Corbic
  2005-2012, Anthony Minessale II
  2006 Nenad Corbic <ncorbic@sangoma.com>
  2007 Jan Vidar Berger, Case Labs, Ltd.

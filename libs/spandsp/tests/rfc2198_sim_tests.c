@@ -89,7 +89,7 @@ int main(int argc, char *argv[])
 #endif
 
 #if defined(ENABLE_GUI)
-    use_gui = FALSE;
+    use_gui = false;
 #endif
     model_no = MODEL_NO;
     speed_pattern_no = SPEED_PATTERN_NO;
@@ -100,7 +100,7 @@ int main(int argc, char *argv[])
         {
         case 'g':
 #if defined(ENABLE_GUI)
-            use_gui = TRUE;
+            use_gui = true;
 #else
             fprintf(stderr, "Graphical monitoring not available\n");
             exit(2);
@@ -183,7 +183,7 @@ int main(int argc, char *argv[])
         if ((len = rfc2198_sim_put(s, put_pkt, put_pkt_len, i, (double) i*0.001*PACKET_INTERVAL)) > 0)
             packets_really_put++;
         packets_put++;
-#if 0        
+#if 0
         if (i == 5)
             rfc2198_sim_queue_dump(s);
 #endif

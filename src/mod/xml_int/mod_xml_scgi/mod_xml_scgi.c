@@ -158,6 +158,7 @@ static switch_xml_t xml_url_fetch(const char *section, const char *tag_name, con
 	switch_assert(data);
 
 	scgi_add_param(&handle, "REQUEST_METHOD", "POST");
+	scgi_add_param(&handle, "SERVER_PROTOCOL", "HTTP/1.0");
 	scgi_add_param(&handle, "REQUEST_URI", binding->uri);
 	scgi_add_body(&handle, data);
 
@@ -453,5 +454,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xml_scgi_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

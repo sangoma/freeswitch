@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2007-2012, Anthony Minessale II
+ * Copyright (c) 2007-2014, Anthony Minessale II
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -143,6 +143,8 @@ static const char *EVENT_NAMES[] = {
 	"CONFERENCE_DATA",
 	"CALL_SETUP_REQ",
 	"CALL_SETUP_RESULT",
+	"CALL_DETAIL",
+	"DEVICE_STATE",
 	"ALL"
 };
 
@@ -275,7 +277,7 @@ ESL_DECLARE(char *) esl_event_get_header_idx(esl_event_t *event, const char *hea
 		}
 
 		return hp->value;
-	} else if (!strcmp(header_name, "_body")) {
+	} else if (header_name && !strcmp(header_name, "_body")) {
 		return event->body;
 	}		
 
@@ -304,7 +306,7 @@ ESL_DECLARE(esl_status_t) esl_event_del_header_val(esl_event_t *event, const cha
 		esl_assert(x < 1000000);
 		hash = esl_ci_hashfunc_default(header_name, &hlen);
 
-		if ((!hp->hash || hash == hp->hash) && (hp->name && !strcasecmp(header_name, hp->name)) && (esl_strlen_zero(val) || !strcmp(hp->value, val))) {
+		if ((!hp->hash || hash == hp->hash) && (hp->name && !strcasecmp(header_name, hp->name)) && (esl_strlen_zero(val) || (hp->value && !strcmp(hp->value, val)))) {
 			if (lp) {
 				lp->next = hp->next;
 			} else {
@@ -386,10 +388,6 @@ ESL_DECLARE(int) esl_event_add_array(esl_event_t *event, const char *var, const 
 	while((p = strstr(p, "|:"))) {
 		max++;
 		p += 2;
-	}
-
-	if (!max) {
-		return -2;
 	}
 
 	data = strdup(val + 7);
@@ -978,5 +976,5 @@ ESL_DECLARE(esl_status_t) esl_event_serialize_json(esl_event_t *event, char **st
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

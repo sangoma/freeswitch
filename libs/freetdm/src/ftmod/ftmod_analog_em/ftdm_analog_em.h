@@ -33,6 +33,7 @@
  * Contributor(s):
  *
  * John Wehle (john@feith.com)
+ * Moises Silva (moy@sangoma.com)
  *
  */
 
@@ -53,6 +54,8 @@ struct ftdm_analog_data {
 	uint32_t digit_timeout;
 	uint32_t dial_timeout;
 	ftdm_bool_t answer_supervision;
+	ftdm_bool_t immediate_ringback;
+	char ringback_file[512];
 };
 
 static void *ftdm_analog_em_run(ftdm_thread_t *me, void *obj);
@@ -68,5 +71,5 @@ typedef struct ftdm_analog_data ftdm_analog_em_data_t;
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4:
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet:
  */

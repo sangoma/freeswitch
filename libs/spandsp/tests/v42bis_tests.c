@@ -57,7 +57,7 @@ int out_octets_to_date = 0;
 static void frame_handler(void *user_data, const uint8_t *buf, int len)
 {
     int ret;
-    
+
     if ((ret = write((intptr_t) user_data, buf, len)) != len)
         fprintf(stderr, "Write error %d/%d\n", ret, errno);
     out_octets_to_date += len;
@@ -82,8 +82,8 @@ int main(int argc, char *argv[])
     int v42bis_fd;
     int out_fd;
     int do_compression;
-    int do_decompression;
-    int stutter_compression;
+    bool do_decompression;
+    bool stutter_compression;
     int stutter_time;
     int seg;
     int opt;
@@ -94,21 +94,21 @@ int main(int argc, char *argv[])
     const char *decompressed_file;
 
     argv0 = argv[0];
-    do_compression = FALSE;
-    do_decompression = FALSE;
-    stutter_compression = FALSE;
+    do_compression = false;
+    do_decompression = false;
+    stutter_compression = false;
     while ((opt = getopt(argc, argv, "cds")) != -1)
     {
         switch (opt)
         {
         case 'c':
-            do_compression = TRUE;
+            do_compression = true;
             break;
         case 'd':
-            do_decompression = TRUE;
+            do_decompression = true;
             break;
         case 's':
-            stutter_compression = TRUE;
+            stutter_compression = true;
             break;
         default:
             //usage();
@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Error opening file '%s'.\n", decompressed_file);
             exit(2);
         }
-    
+
         time(&now);
         state_b = v42bis_init(NULL, 3, 512, 6, frame_handler, (void *) (intptr_t) v42bis_fd, 512, data_handler, (void *) (intptr_t) out_fd, 512);
         span_log_set_level(v42bis_get_logging_state(state_b), SPAN_LOG_SHOW_SEVERITY | SPAN_LOG_SHOW_PROTOCOL | SPAN_LOG_FLOW);

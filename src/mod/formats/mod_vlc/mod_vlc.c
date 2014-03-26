@@ -398,6 +398,11 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_vlc_load)
 	/* load the vlc engine. */
 	read_inst = libvlc_new(1, &vlc_args);
 
+	if ( ! read_inst ) {
+		switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_CRIT, "FAILED TO LOAD\n");
+		return SWITCH_STATUS_GENERR;
+	}
+
 	switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "Initialized VLC instance\n");
 
 	/* indicate that the module should continue to be loaded */
@@ -423,5 +428,5 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_vlc_shutdown)
  * c-basic-offset:4
  * End:
  * For VIM:
- * vim:set softtabstop=4 shiftwidth=4 tabstop=4
+ * vim:set softtabstop=4 shiftwidth=4 tabstop=4 noet
  */
